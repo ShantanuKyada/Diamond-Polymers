@@ -23,7 +23,7 @@ operator attendance, editable profile) is complete.
 - Database: migrations `0001`–`0015` run on a real Postgres in process, **259
   checks** passing.
 - `0015` has **not yet been applied** to the live Supabase project.
-- The folder is **not under version control** yet.
+- Git repository on `main`; not yet pushed to a remote.
 
 Module write-ups: [pipe manufacturing](docs/04-pipe-manufacturing.md),
 [payroll](docs/05-payroll.md),

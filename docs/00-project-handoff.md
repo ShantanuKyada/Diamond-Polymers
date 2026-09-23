@@ -4,7 +4,7 @@
 what exists, what works, what has been verified, what is still open, and how to
 pick the work up without starting over.
 
-Last updated: 17 September 2026.
+Last updated: 23 September 2026.
 
 ---
 
@@ -190,10 +190,10 @@ likely to be questioned:
 
 In rough order of importance:
 
-1. **The project is not under version control.** There is no `.git` folder.
-   Nothing protects this work from an accidental delete or overwrite, and the
-   GitHub workflows cannot run. Strongly recommended next step:
-   `git init`, commit, and push to a private repository.
+1. **Push to a remote.** The project is now a git repository on branch `main`
+   with one commit covering everything, but it exists only on this machine.
+   Until it is pushed to a private remote, a disk failure still loses it, and
+   the GitHub Actions workflows cannot run.
 2. **Apply 0015 to the live Supabase project**, then build a live APK and walk
    through the new features against real data.
 3. **Duplicate folder.** `Diamond-Polymers-main/Diamond-Polymers-main/` is an
