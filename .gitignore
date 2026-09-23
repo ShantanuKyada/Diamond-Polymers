@@ -1,0 +1,35 @@
+# Flutter / Dart
+app/.dart_tool/
+app/build/
+app/.flutter-plugins-dependencies
+app/.idea/
+*.iml
+
+# Generated native folders
+app/ios/
+app/macos/
+app/linux/
+app/windows/
+
+# Local config — never commit Supabase credentials
+.env
+.env.*
+*.dart_define.json
+app/.vscode/launch.json
+
+# IDE
+.idea/
+.vscode/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Database test harness
+supabase/tests/node_modules/
+supabase/tests/package-lock.json
+
+# An older duplicate copy of this project, left over from an unzip. It is not
+# used by anything and should be deleted; ignored so it never enters history.
+/Diamond-Polymers-main/

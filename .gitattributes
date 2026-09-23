@@ -1,0 +1,12 @@
+# One line ending everywhere. The team may be on Windows, macOS and CI at once,
+# and without this a checkout on another platform shows every file as modified.
+* text=auto eol=lf
+
+# Binary: never normalise, never diff as text.
+*.png binary
+*.jpg binary
+*.ttf binary
+*.otf binary
+*.apk binary
+*.keystore binary
+*.jks binary

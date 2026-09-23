@@ -1,0 +1,102 @@
+name: Build Demo APK
+
+# Builds an installable APK that runs entirely on in-memory data.
+#
+# Separate from build-apk.yml because that one refuses to build without Supabase
+# credentials — shipping an app that cannot reach its backend is worse than not
+# building. A demo build has no backend by design, so it needs no secrets and
+# can run on a fresh clone.
+#
+# This is the APK to hand to somebody for a demonstration. It cannot touch a
+# real project: no Supabase client is constructed at all, and every screen
+# carries a DEMO DATA ribbon.
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_tests:
+        description: 'Run analyze and tests before building'
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.41.6
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Analyze
+        if: github.event.inputs.run_tests != 'false'
+        working-directory: app
+        run: flutter analyze
+
+      - name: Test
+        if: github.event.inputs.run_tests != 'false'
+        working-directory: app
+        run: flutter test
+
+      # arm64-v8a covers every Android phone sold in roughly the last decade and
+      # is about a third the size of the universal APK, which matters when the
+      # file is going over a chat app. The universal build is here too, for a
+      # handset of unknown vintage.
+      - name: Build
+        working-directory: app
+        run: |
+          set -euo pipefail
+          flutter build apk --release \
+            --dart-define=DEMO_MODE=true \
+            --dart-define=APP_ENV=demo
+          flutter build apk --release --split-per-abi \
+            --dart-define=DEMO_MODE=true \
+            --dart-define=APP_ENV=demo
+
+      - name: Report the sizes
+        working-directory: app/build/app/outputs/flutter-apk
+        run: |
+          {
+            echo '### Demo APKs'
+            echo
+            echo '| File | Size | Install on |'
+            echo '|---|---|---|'
+            for f in app-release.apk app-arm64-v8a-release.apk \
+                     app-armeabi-v7a-release.apk; do
+              [ -f "$f" ] || continue
+              size=$(du -h "$f" | cut -f1)
+              case "$f" in
+                app-release.apk)             where='any phone — largest, safest choice' ;;
+                app-arm64-v8a-release.apk)   where='any modern phone (2015 onwards)' ;;
+                app-armeabi-v7a-release.apk) where='older 32-bit phones' ;;
+              esac
+              echo "| \`$f\` | $size | $where |"
+            done
+            echo
+            echo 'Sign in with any password. An address containing `admin` opens'
+            echo 'the admin app; anything else opens the operator app.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: diamond-polymers-demo-${{ github.sha }}
+          path: |
+            app/build/app/outputs/flutter-apk/app-release.apk
+            app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+            app/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+          if-no-files-found: error
+          retention-days: 30

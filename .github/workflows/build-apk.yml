@@ -1,0 +1,181 @@
+name: Build APK
+
+# Builds an installable APK on a clean Linux runner.
+#
+# This exists because Gradle cannot build on every machine: it needs
+# `java.nio.channels.Selector`, which since JDK 16 is implemented on Windows
+# with a Unix-domain socket pair. Where AF_UNIX can be bound but not connected
+# to, every Gradle build fails with "Unable to establish loopback connection"
+# and there is no flag to work around it. A Linux runner sidesteps the whole
+# problem.
+#
+# Credentials are supplied when the workflow is run, or from repository secrets
+# if they are configured. They are NOT committed: the publishable key is
+# designed to ship inside a client app, but a public repository is a different
+# kind of exposure from an APK.
+
+on:
+  workflow_dispatch:
+    inputs:
+      supabase_url:
+        description: 'Supabase project URL (blank = use the SUPABASE_URL secret)'
+        required: false
+        default: ''
+      supabase_anon_key:
+        description: 'Supabase publishable / anon key (blank = use the secret)'
+        required: false
+        default: ''
+      run_tests:
+        description: 'Run analyze and tests before building'
+        type: boolean
+        default: true
+
+  # Every push to main also produces an APK, but only when the secrets exist —
+  # without them the build would silently ship an app that cannot reach the
+  # backend, which is worse than not building at all.
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          # Pinned rather than `stable`, so a Flutter release cannot change
+          # what this produces without somebody deciding to.
+          flutter-version: 3.41.6
+          channel: stable
+          cache: true
+
+      - name: Resolve configuration
+        id: config
+        env:
+          INPUT_URL: ${{ github.event.inputs.supabase_url }}
+          INPUT_KEY: ${{ github.event.inputs.supabase_anon_key }}
+          SECRET_URL: ${{ secrets.SUPABASE_URL }}
+          SECRET_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          URL="${INPUT_URL:-$SECRET_URL}"
+          KEY="${INPUT_KEY:-$SECRET_KEY}"
+
+          if [ -z "$URL" ] || [ -z "$KEY" ]; then
+            echo "::error::No Supabase URL or key supplied."
+            echo "::error::Run this workflow manually and paste them in, or add"
+            echo "::error::SUPABASE_URL and SUPABASE_ANON_KEY as repository secrets."
+            exit 1
+          fi
+
+          # Masked so neither can appear in the log, including in any command
+          # this workflow echoes later.
+          echo "::add-mask::$KEY"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Analyze
+        if: github.event_name == 'push' || github.event.inputs.run_tests == 'true'
+        working-directory: app
+        run: flutter analyze
+
+      - name: Flutter tests
+        if: github.event_name == 'push' || github.event.inputs.run_tests == 'true'
+        working-directory: app
+        run: flutter test
+
+      - name: Database tests
+        if: github.event_name == 'push' || github.event.inputs.run_tests == 'true'
+        working-directory: supabase/tests
+        # PGlite is a real Postgres compiled to WebAssembly, so this needs no
+        # database service and no network.
+        run: |
+          npm install
+          npm test
+
+      # Two builds, because they answer different questions.
+      #
+      # The universal APK carries every CPU architecture and installs on
+      # anything, which is what you want when handing a file to somebody whose
+      # phone you have never seen. It costs about 53 MB for the privilege:
+      # arm64-v8a, armeabi-v7a and x86_64 are all in there, and x86_64 is only
+      # ever used by emulators.
+      #
+      # The per-ABI builds are ~20 MB each. arm64-v8a is what every Android
+      # phone sold in roughly the last decade runs, so that is the one to send
+      # over a chat or a slow connection.
+      - name: Build APK
+        working-directory: app
+        run: |
+          set -euo pipefail
+          DEFINES=(
+            --dart-define=SUPABASE_URL='${{ steps.config.outputs.url }}'
+            --dart-define=SUPABASE_ANON_KEY='${{ steps.config.outputs.key }}'
+            --dart-define=APP_ENV=production
+          )
+          flutter build apk --release "${DEFINES[@]}"
+          flutter build apk --release --split-per-abi "${DEFINES[@]}"
+
+      - name: Name the artifact
+        id: name
+        run: echo "name=diamond-polymers-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Report the sizes
+        working-directory: app/build/app/outputs/flutter-apk
+        run: |
+          {
+            echo '### APKs'
+            echo
+            echo '| File | Size | Install on |'
+            echo '|---|---|---|'
+            for f in app-release.apk app-arm64-v8a-release.apk \
+                     app-armeabi-v7a-release.apk app-x86_64-release.apk; do
+              [ -f "$f" ] || continue
+              size=$(du -h "$f" | cut -f1)
+              case "$f" in
+                app-release.apk)             where='any phone — largest, safest choice' ;;
+                app-arm64-v8a-release.apk)   where='any modern phone (2015 onwards)' ;;
+                app-armeabi-v7a-release.apk) where='older 32-bit phones' ;;
+                *)                           where='emulators only' ;;
+              esac
+              echo "| \`$f\` | $size | $where |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.name.outputs.name }}
+          path: |
+            app/build/app/outputs/flutter-apk/app-release.apk
+            app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+            app/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Summary
+        run: |
+          SIZE=$(du -h app/build/app/outputs/flutter-apk/app-release.apk | cut -f1)
+          {
+            echo "### APK built"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Artifact | \`${{ steps.name.outputs.name }}\` |"
+            echo "| Size | $SIZE |"
+            echo "| Commit | \`${GITHUB_SHA::7}\` |"
+            echo ""
+            echo "Download it from the **Artifacts** section of this run, unzip,"
+            echo "and install on the handset. It is signed with the debug key, so"
+            echo "Android will ask you to allow installation from this source."
+          } >> "$GITHUB_STEP_SUMMARY"

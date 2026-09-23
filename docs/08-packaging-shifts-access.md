@@ -1,0 +1,195 @@
+# Packaging, Two Shifts, and Admin-Only Material Entry
+
+Covers the ERP change request of September 2026: bags alongside bundles, the
+type → size → packaging mapping, a fixed two-shift master, wastage usage on
+production entries, self-service profiles, the weekly My Entries view,
+admin-only material entry, and attendance on the operator home.
+
+Database: `supabase/migrations/0015_packaging_shifts_access.sql`.
+Tests: `supabase/tests/packaging_access.test.mjs`.
+
+Each decision below continues the register in `01-ambiguities-and-decisions.md`.
+
+---
+
+## A24. Where the packaging mapping lives — RESOLVED
+
+The request asks for a "Type Master" with sizes configured under each type,
+each carrying pipes-per-bag and pipes-per-bundle.
+
+That structure already exists. `pipe_types` is the type master, and
+`pipe_products` is one row per (type, size) — which is exactly "a size
+configured under a type". It already carries `pipes_per_bundle`.
+
+**Decision:** add `pipes_per_bag` to `pipe_products`. No new table. A second
+mapping table keyed by the same pair would give every product two sources of
+truth for its packaging, and they would drift.
+
+The Products screen is regrouped by type so it reads as the requested
+Type → Size → Packaging hierarchy. New sizes are still created once in the
+Pipe Sizes master and then mapped under whichever types use them, so a size
+shared by two types is not defined twice.
+
+## A25. Bags are their own stock, not a conversion of bundles — RESOLVED
+
+Two ways to model "20 bundles and 10 bags":
+
+1. Count everything in pipes and treat bundles and bags as views of one pool.
+2. Keep a bundle balance and a bag balance per product.
+
+**Decision: (2).** Packed goods are physically in one packaging. A bundle on
+the floor cannot be dispatched as bags without somebody unpacking and repacking
+it, so a single pipe pool would let the system approve a bag dispatch the
+storeroom cannot fill.
+
+- `finished_goods_stock.quantity_bags` sits beside `quantity_bundles`.
+- `finished_goods_transactions.packaging` (`BUNDLE` / `BAG`) says which balance
+  a ledger row moved. Existing rows default to `BUNDLE`, so history is unchanged.
+- Every reader that sums the ledger now filters by packaging —
+  `v_stock_reconciliation` and `finished_goods_report()` included — otherwise a
+  bag movement would have been silently counted as bundles.
+
+Repacking bundles into bags is not modelled. If it happens, it is two
+adjustments, one per packaging.
+
+## A26. The mapping is used, not just stored — RESOLVED
+
+"Use these mappings to calculate or validate the corresponding bags/bundles":
+
+- **Validate.** A product can be produced or dispatched in bags only once both
+  `pipes_per_bag` and `pipes_per_bundle` are configured. Bundles keep working
+  without them, because every existing product and record predates the mapping.
+- **Calculate weight.** A bag's weight is derived as
+  `bundle_weight_kg × pipes_per_bag ÷ pipes_per_bundle` and snapshotted on the
+  entry, exactly as bundle weight already is.
+- **Calculate pipes.** Screens show the pipe count a quantity represents.
+
+## A27. Production records bags too — RESOLVED (necessary consequence)
+
+The request adds bags to dispatch but not explicitly to production. Bag stock
+only ever comes from production, so without this every bag dispatch would fail
+with zero stock.
+
+**Decision:** production entries carry `bag_quantity` beside `bundle_quantity`.
+Either may be zero; at least one must not be.
+
+`output_weight_kg` is redefined to include bag output. It is a stored generated
+column, so it was dropped and re-added with the new expression, and the three
+views that read it were recreated verbatim. Every weight report — the material
+balance, yield, the variance view and `production_report()` — is therefore
+correct for bag production without any change to its own logic.
+
+## A28. "Wastage material used" does not move stock — RESOLVED (assumption)
+
+This is a different figure from the existing `wastage_quantity`:
+
+| Column | Meaning |
+|---|---|
+| `wastage_quantity` | scrap **generated** by the run |
+| `wastage_used_kg` | recycled material **consumed** by the run |
+
+Recycled material is an ordinary raw material (A20) and its consumption is
+recorded through Material Entry, which is now admin-only (A30). If the
+production entry also deducted it, the same kilograms would leave stock twice.
+
+**Decision:** the production entry records the declaration — `wastage_used`
+and `wastage_used_kg` — for reporting and analysis, and moves no stock. The
+database enforces the shape: `No` means the quantity is null, `Yes` means it is
+greater than zero. A `No` with a quantity is refused rather than quietly
+discarded.
+
+## A29. Exactly two shifts — RESOLVED
+
+Enforced by a trigger on `shifts`, not only by hiding a button:
+
+- Only rows named Morning or Night can be created.
+- They cannot be renamed, switched off or deleted.
+- Any other shift cannot be switched back on.
+- Times stay editable.
+
+The legacy **Afternoon** shift is deactivated, not deleted — historical entries
+reference it and must keep resolving. Open machine assignments that pointed at
+it have their shift cleared, and administrators get a notification saying how
+many need reassigning.
+
+A second trigger refuses **new** entries (production, material, wastage,
+shredding, attendance) against anything but an active Morning or Night shift.
+It fires on insert only, so existing records are untouched.
+
+Seeded times are Morning 06:00–18:00 and Night 18:00–06:00, since two shifts
+must now cover the day. They are editable.
+
+## A30. Material Entry is admin-only — RESOLVED
+
+- `consume_raw_materials()` now calls `app.require_admin()`. An operator
+  calling it directly over REST gets DP004. There was already no INSERT policy
+  on the mixture tables, so the function was the only write path.
+- The route moves from `/op/mixture` to `/admin/material`. The router's prefix
+  guard sends an operator away from `/admin/*`, so the screen is unreachable
+  even by typing the path.
+- The operator bottom bar loses its Material tab and the home page loses the
+  Raw Material Entry card.
+- The admin chooses the machine. The batch is attributed to the operator
+  currently assigned to that machine, or to the admin if nobody is.
+
+Operators can still **read** consumption attributed to them — the home page's
+"Material used today" is information, not entry.
+
+## A31. Self-service profile — RESOLVED
+
+`update_my_profile(p_name, p_phone)` changes the caller's name and phone and
+nothing else. No UPDATE policy was opened on `profiles`: a policy would have
+let an operator write their own `role` column too.
+
+Phone numbers may be cleared. Otherwise, after stripping spaces and hyphens,
+they must be 10–15 digits with an optional leading `+`.
+
+## A32. My Entries shows seven days, oldest first — RESOLVED
+
+"Last 1 week / 7 days" is today plus the six days before it. "Chronological
+order" is taken literally: oldest day at the top, entries within a day in the
+order they were recorded. Row level security already limits the rows to the
+signed-in operator; the screen filters by the operator's own id as well.
+
+## A33. Attendance on the operator home is read-only — RESOLVED
+
+The request lists information to show — today's status, check-in and
+check-out, recent attendance — so the section shows exactly that, from
+`v_attendance_days`, which row level security already limits to the person
+signed in. No punch button was added; that would be a new capability rather
+than the information asked for.
+
+---
+
+## Verification
+
+Database — `cd supabase/tests && npm test`, real Postgres in-process (PGlite):
+
+| Suite | Checks |
+|---|---|
+| manufacturing | 70 |
+| payroll | 52 |
+| app contract (every column and RPC parameter the app uses) | 59 |
+| **packaging and access (this change)** | **78** |
+
+The new suite covers each scenario the request lists — bundles only, bags only,
+both, different types and sizes, wastage used and not used, Morning and Night,
+several operators, admin against operator — plus atomicity (a dispatch short on
+bags moves no stock at all), per-packaging ledger reconciliation, and the
+upgrade of a live database that still has an Afternoon shift and history
+recorded against it.
+
+App — `cd app && flutter analyze && flutter test`: no issues, 103 tests.
+`test/change_request_test.dart` drives the demo app end to end: the operator
+bottom bar, attendance on the home page, bags offered only for bagged
+products, the wastage question gating its quantity, the seven-day
+chronological My Entries, profile editing and its validation, and the fixed
+shift master.
+
+## Applying to an existing project
+
+Run `0015_packaging_shifts_access.sql` in the SQL editor after 0014. It is
+safe on a database with history: existing entries and dispatches keep their
+meaning, the Afternoon shift is switched off rather than deleted, and any
+operator assigned to it is left without a shift and reported to
+administrators in the notification centre.
