@@ -5,13 +5,14 @@
   "description": "Runs the migrations against an in-process Postgres and exercises the atomic RPCs, RLS and the material balance. No Docker, no Supabase CLI, no network.",
   "type": "module",
   "scripts": {
-    "test": "node manufacturing.test.mjs && node payroll.test.mjs && node app_contract.test.mjs && node packaging_access.test.mjs && node api_coverage.test.mjs",
+    "test": "node manufacturing.test.mjs && node payroll.test.mjs && node app_contract.test.mjs && node packaging_access.test.mjs && node api_coverage.test.mjs && node checks.test.mjs",
     "apply": "node apply.mjs",
     "test:manufacturing": "node manufacturing.test.mjs",
     "test:payroll": "node payroll.test.mjs",
     "test:contract": "node app_contract.test.mjs",
     "test:packaging": "node packaging_access.test.mjs",
-    "test:api": "node api_coverage.test.mjs"
+    "test:api": "node api_coverage.test.mjs",
+    "test:checks": "node checks.test.mjs"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",

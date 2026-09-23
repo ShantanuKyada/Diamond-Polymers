@@ -101,7 +101,7 @@ There are no placeholder screens left. `PlaceholderScreen` was deleted.
 |---|---|---|
 | Static analysis | `cd app && flutter analyze` | No issues |
 | Flutter tests | `cd app && flutter test` | **103 passed** |
-| Database tests | `cd supabase/tests && npm install && npm test` | **328 passed** (70 + 52 + 59 + 78 + 69) |
+| Database tests | `cd supabase/tests && npm install && npm test` | **354 passed** (70 + 52 + 59 + 78 + 69 + 26) |
 | Release APK | `flutter build apk --release …` | Builds locally in ~2–4 min |
 
 One of those suites (`api_coverage.test.mjs`) reads every Supabase call out of
@@ -195,7 +195,8 @@ In rough order of importance:
    Until it is pushed to a private remote, a disk failure still loses it, and
    the GitHub Actions workflows cannot run.
 2. **Apply 0015 to the live Supabase project**, then build a live APK and walk
-   through the new features against real data.
+   through the new features against real data. Follow `docs/10-applying-0015.md`;
+   the pre-flight and verify scripts are in `supabase/checks/`.
 3. **Duplicate folder.** `Diamond-Polymers-main/Diamond-Polymers-main/` is an
    older copy of the app (before demo mode and the latest screens). It is not
    used by anything. Delete it once you are sure, so nobody edits the wrong
@@ -242,3 +243,4 @@ In rough order of importance:
 | `07-phase-3-inventory.md` | Inventory and material entry |
 | `08-packaging-shifts-access.md` | September 2026 change request, A24–A33, verification |
 | `09-screens-and-configuration.md` | Screen inventory, what is configurable, what stays a literal |
+| `10-applying-0015.md` | Step-by-step for applying 0015 to the live project |
