@@ -1,5 +1,6 @@
 import 'package:diamond_polymers/app.dart';
 import 'package:diamond_polymers/core/demo/demo_overrides.dart';
+import 'package:diamond_polymers/core/demo/demo_operations.dart';
 import 'package:diamond_polymers/core/demo/demo_repositories.dart';
 import 'package:diamond_polymers/core/demo/demo_store.dart';
 import 'package:diamond_polymers/core/error/app_exception.dart';
@@ -267,21 +268,66 @@ void main() {
   });
 
   group('Rules the demo keeps, as the database does', () {
-    test('an operator cannot record a material entry', () async {
+    // A34: the boundary moved from "administrators only" to "your own machine
+    // only". The demo has to move with it, or the demo APK contradicts the
+    // live one.
+    test('an operator records material for their own machine', () async {
+      final store = DemoStore()..signedInProfileId = DemoStore.raviId;
+      final repo = DemoMixtureRepository(store);
+
+      final result = await repo.consume(
+        machineId: DemoStore.machine1, // Ravi's machine
+        shiftId: DemoStore.shiftMorning,
+        lines: const [
+          MixtureLine(rawMaterialId: DemoStore.raizinId, quantity: 1),
+        ],
+        clientRef: 'op-own-machine',
+      );
+
+      expect(result.duplicate, isFalse);
+      expect(result.totalQuantity, 1);
+
+      // And the batch is kept, because production now points at it (A37).
+      final batches = await repo.recentBatches(machineId: DemoStore.machine1);
+      expect(batches, isNotEmpty);
+      expect(batches.first.id, result.id);
+      expect(batches.first.hasProduction, isFalse);
+    });
+
+    test('but not for a machine they are not assigned to', () async {
       final store = DemoStore()..signedInProfileId = DemoStore.raviId;
       final repo = DemoMixtureRepository(store);
 
       await expectLater(
         repo.consume(
-          machineId: DemoStore.machine1,
+          machineId: DemoStore.machine2, // not Ravi's
           shiftId: DemoStore.shiftMorning,
           lines: const [
             MixtureLine(rawMaterialId: DemoStore.raizinId, quantity: 1),
           ],
-          clientRef: 'op-attempt',
+          clientRef: 'op-other-machine',
         ),
         throwsA(isA<AppException>()
             .having((e) => e.kind, 'kind', AppErrorKind.authorization)),
+      );
+    });
+
+    test('production without a batch is refused, as in the database (A37)',
+        () async {
+      final store = DemoStore()..signedInProfileId = DemoStore.raviId;
+      final repo = DemoProductionRepository(store);
+
+      await expectLater(
+        repo.record(
+          machineId: DemoStore.machine1,
+          shiftId: DemoStore.shiftMorning,
+          pipeTypeId: DemoStore.typeA,
+          pipeSizeId: '44444444-4444-4444-8444-000000000001',
+          bundleQuantity: 5,
+          clientRef: 'no-batch',
+        ),
+        throwsA(isA<AppException>()
+            .having((e) => e.kind, 'kind', AppErrorKind.validation)),
       );
     });
 

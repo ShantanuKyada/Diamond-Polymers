@@ -53,6 +53,11 @@ class DemoStore {
   final List<Map<String, dynamic>> settings = [];
   final List<Map<String, dynamic>> notifications = [];
   final List<Map<String, dynamic>> productionEntries = [];
+
+  /// Material batches (A37). The demo kept none before, because nothing read
+  /// them back — a production run now belongs to one, so they have to persist
+  /// for the demo to behave like the real thing.
+  final List<Map<String, dynamic>> mixtures = [];
   final List<Map<String, dynamic>> recycled = [];
   final List<Map<String, dynamic>> dispatchRows = [];
   final List<Map<String, dynamic>> wastageRows = [];
@@ -73,6 +78,18 @@ class DemoStore {
       if (person['id'] == id) return person['role'] == 'ADMIN';
     }
     return false;
+  }
+
+  /// Whether the signed-in person currently runs this machine (A34).
+  ///
+  /// Mirrors `app.assert_can_record()`: it is the assignment that grants the
+  /// right to record, not the role.
+  bool isAssignedTo(String machineId) {
+    final id = signedInProfileId;
+    if (id == null) return false;
+    return assignments.any(
+      (a) => a['operator_id'] == id && a['machine_id'] == machineId,
+    );
   }
 
   /// machine id -> the products that machine is allowed to run.

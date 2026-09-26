@@ -1,4 +1,4 @@
-import { build, asUser } from './harness.mjs';
+import { build, asUser, chargeBatch } from './harness.mjs';
 import { randomUUID } from 'node:crypto';
 
 // A Postgres error thrown outside a check() would otherwise print PGlite's whole
@@ -100,15 +100,32 @@ check('every seeded day balances to within a kilogram',
 // =============================================================================
 section('record_production — weight snapshot and capability');
 
+// Since A37 a run belongs to the batch that fed it, so the machine is charged
+// first — exactly as the floor does it. One batch may feed several runs, which
+// is why the same one is reused through this section.
+let batch;
 let prodId;
 await asUser(db, RAVI_AUTH, async () => {
-  const r = await one(`select public.record_production($1,$2,$3,$4,$5,$6) as j`,
-    [M1, SHIFT1, TA, S1, 10, randomUUID()]);
+  batch = await chargeBatch(db,
+    { machineId: M1, shiftId: SHIFT1, materialId: RAIZIN, quantity: 40 });
+
+  const r = await one(
+    `select public.record_production($1,$2,$3,$4,$5,$6,
+       p_mixture_entry_id => $7) as j`,
+    [M1, SHIFT1, TA, S1, 10, randomUUID(), batch]);
   const j = r.j;
   prodId = j.id;
   check('production records and returns the weight it used',
     num(j.bundle_weight_kg) === 18.5 && num(j.output_weight_kg) === 185,
     JSON.stringify(j));
+});
+
+// Production without a batch is refused outright (A37).
+await asUser(db, RAVI_AUTH, async () => {
+  const state = await sqlstate(() => db.query(
+    `select public.record_production($1,$2,$3,$4,$5,$6)`,
+    [M1, SHIFT1, TA, S1, 1, randomUUID()]));
+  check('production with no batch is refused', state === 'DP012', `got ${state}`);
 });
 
 // A later spec change must not rewrite what already happened.
@@ -146,14 +163,14 @@ await db.query(`select public.set_machine_products($1, array[
 
 await asUser(db, RAVI_AUTH, async () => {
   const state = await sqlstate(() => db.query(
-    `select public.record_production($1,$2,$3,$4,$5,$6)`,
-    [M1, SHIFT1, TB, S3, 5, randomUUID()]));
+    `select public.record_production($1,$2,$3,$4,$5,$6, p_mixture_entry_id => $7)`,
+    [M1, SHIFT1, TB, S3, 5, randomUUID(), batch]));
   check('a machine cannot be credited with a product it does not run',
     state === 'DP009', `got ${state}`);
 
   const okAgain = await sqlstate(() => db.query(
-    `select public.record_production($1,$2,$3,$4,$5,$6)`,
-    [M1, SHIFT1, TA, S1, 3, randomUUID()]));
+    `select public.record_production($1,$2,$3,$4,$5,$6, p_mixture_entry_id => $7)`,
+    [M1, SHIFT1, TA, S1, 3, randomUUID(), batch]));
   check('the product it does run is still accepted', okAgain === null, `got ${okAgain}`);
 });
 
@@ -166,8 +183,8 @@ await db.query(`insert into pipe_sizes (id, code, name, sort_order)
   values ('44444444-4444-4444-8444-000000000099','S9','Size 9',9)`);
 await asUser(db, RAVI_AUTH, async () => {
   const state = await sqlstate(() => db.query(
-    `select public.record_production($1,$2,$3,$4,$5,$6)`,
-    [M1, SHIFT1, TA, '44444444-4444-4444-8444-000000000099', 5, randomUUID()]));
+    `select public.record_production($1,$2,$3,$4,$5,$6, p_mixture_entry_id => $7)`,
+    [M1, SHIFT1, TA, '44444444-4444-4444-8444-000000000099', 5, randomUUID(), batch]));
   check('production is refused when no bundle weight is configured',
     state === 'DP008', `got ${state}`);
 });
@@ -402,6 +419,89 @@ check('recovery percentage is reported per shred',
 const recycledView = await all(`select * from v_recycled_material_stock`);
 check('recycled stock is reported apart from virgin stock',
   recycledView.length === 2 && recycledView.some(r => num(r.total_recovered_kg) > 0));
+
+// =============================================================================
+section('A37 — a run belongs to the batch that fed it');
+
+await asUser(db, RAVI_AUTH, async () => {
+  const own = await chargeBatch(db,
+    { machineId: M1, shiftId: SHIFT1, materialId: RAIZIN, quantity: 60 });
+
+  const r = await one(
+    `select public.record_production($1,$2,$3,$4,$5,$6,
+       p_mixture_entry_id => $7) as j`,
+    [M1, SHIFT1, TA, S1, 2, randomUUID(), own]);
+  const stored = await one(
+    `select mixture_entry_id from production_entries where id=$1`, [r.j.id]);
+  check('the link is stored on the entry', stored.mixture_entry_id === own);
+
+  // The factory said one batch usually feeds one run, but asked not to forbid
+  // a second — a batch that yields two sizes is two entries by A11.
+  const second = await sqlstate(() => db.query(
+    `select public.record_production($1,$2,$3,$4,$5,$6, p_mixture_entry_id => $7)`,
+    [M1, SHIFT1, TA, S3, 1, randomUUID(), own]));
+  check('a second run against the same batch is allowed', second === null,
+    `got ${second}`);
+
+  const missing = await sqlstate(() => db.query(
+    `select public.record_production($1,$2,$3,$4,$5,$6, p_mixture_entry_id => $7)`,
+    [M1, SHIFT1, TA, S1, 1, randomUUID(), randomUUID()]));
+  check('a batch that does not exist is refused', missing === 'DP005',
+    `got ${missing}`);
+});
+
+// A batch belongs to a machine, and a run cannot borrow another machine's.
+const foreignBatch = await (async () => {
+  let id;
+  await asUser(db, ADMIN_AUTH, async () => {
+    id = await chargeBatch(db,
+      { machineId: M4, shiftId: SHIFT1, materialId: RAIZIN, quantity: 10 });
+  });
+  return id;
+})();
+
+await asUser(db, RAVI_AUTH, async () => {
+  const wrong = await sqlstate(() => db.query(
+    `select public.record_production($1,$2,$3,$4,$5,$6, p_mixture_entry_id => $7)`,
+    [M1, SHIFT1, TA, S1, 1, randomUUID(), foreignBatch]));
+  check('a batch charged into another machine is refused', wrong === 'DP005',
+    `got ${wrong}`);
+});
+
+// The payoff: yield for one batch, not an average over a machine-day.
+const yields = await all(
+  `select * from v_batch_yield where runs > 0 order by created_at desc limit 1`);
+check('v_batch_yield reports a batch that has produced', yields.length === 1);
+if (yields.length === 1) {
+  const y = yields[0];
+  check('it puts kilograms in against kilograms out',
+    num(y.charged_kg) > 0 && num(y.produced_kg) > 0,
+    JSON.stringify({ in: y.charged_kg, out: y.produced_kg }));
+  check('unaccounted = charged − produced − wastage',
+    Math.abs(num(y.unaccounted_kg) -
+      (num(y.charged_kg) - num(y.produced_kg) - num(y.wastage_kg))) < 0.001);
+  check('yield is a percentage of what was charged',
+    num(y.yield_pct) > 0, `${y.yield_pct}`);
+}
+
+// A batch still running has no runs against it yet, and says so rather than
+// reporting a yield of zero as though the run had failed.
+const openBatch = await all(
+  `select * from v_batch_yield where runs = 0 limit 1`);
+check('a batch with no production yet reports no yield',
+  openBatch.length === 0 || openBatch[0].yield_pct === null,
+  JSON.stringify(openBatch[0] ?? {}));
+
+// The requirement is configurable, for back-filling and corrections.
+await db.query(`update app_settings set value='false' where key='production_requires_batch'`);
+await asUser(db, RAVI_AUTH, async () => {
+  const relaxed = await sqlstate(() => db.query(
+    `select public.record_production($1,$2,$3,$4,$5,$6)`,
+    [M1, SHIFT1, TA, S1, 1, randomUUID()]));
+  check('turning the rule off allows an unlinked entry', relaxed === null,
+    `got ${relaxed}`);
+});
+await db.query(`update app_settings set value='true' where key='production_requires_batch'`);
 
 const finalDrift = await all(`select * from v_stock_reconciliation where not ok`);
 check('after every movement, ledgers still explain every balance',

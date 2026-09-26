@@ -92,6 +92,10 @@ class ErrorMapper {
     'DP010': AppErrorKind.insufficientStock,
     // The payroll month is finalised and will not accept changes.
     'DP011': AppErrorKind.conflict,
+    // Production recorded without the material batch it came out of (A37).
+    // Validation rather than notConfigured: the operator can fix it here and
+    // now by picking a batch, or by recording the material first.
+    'DP012': AppErrorKind.validation,
   };
 
   static AppException map(Object error, [StackTrace? stackTrace]) {

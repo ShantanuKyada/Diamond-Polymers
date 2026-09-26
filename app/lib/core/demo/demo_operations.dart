@@ -42,6 +42,7 @@ class DemoProductionRepository implements ProductionRepository {
     int bagQuantity = 0,
     bool wastageUsed = false,
     double? wastageUsedKg,
+    String? mixtureEntryId,
   }) async {
     return _latency(() {
       if (!_store.usedClientRefs.add(clientRef)) {
@@ -53,7 +54,32 @@ class DemoProductionRepository implements ProductionRepository {
         );
       }
 
-      // The same checks record_production() makes, in the same order.
+      // The same checks record_production() makes, in the same order — which
+      // now starts with the batch (A37), so the demo refuses an unlinked run
+      // exactly where the database does.
+      final batch = mixtureEntryId == null
+          ? null
+          : _store.mixtures
+              .where((m) => m['mixture_entry_id'] == mixtureEntryId)
+              .firstOrNull;
+
+      if (mixtureEntryId == null) {
+        throw const AppException(
+          kind: AppErrorKind.validation,
+          message: 'Record the material that went into the machine first, '
+              'then link this production to it.',
+          data: {'field': 'mixture_entry_id'},
+        );
+      }
+      if (batch == null) {
+        throw _invalid('That material batch does not exist.');
+      }
+      if (batch['machine_id'] != machineId) {
+        throw _invalid(
+            'That material batch was charged into a different machine.');
+      }
+      batch['runs'] = (batch['runs'] as int) + 1;
+
       if (bundleQuantity < 0 || bagQuantity < 0) {
         throw _invalid('Quantities cannot be negative.');
       }

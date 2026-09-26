@@ -281,3 +281,58 @@ with a visible gap beats no challan.
 
 Shared or printed through `printing`, which covers WhatsApp, email and a printer
 from one sheet and works with no signal.
+
+## A37. A production run belongs to the batch that fed it — RESOLVED (answers A12)
+
+A12 left this open on purpose:
+
+> "The factory has not defined a recipe, a batch yield, or whether one mix feeds
+> several entries. `production_entries.mixture_entry_id` is deliberately **not**
+> added, because that column would encode a guess about the process."
+
+The factory has now described the process, and it is the obvious one: an
+operator comes on shift, charges the machine with raizin, colour and the rest,
+records that, runs the machine, and records the output when it is done. Two
+halves of one run.
+
+**Decision:** `production_entries.mixture_entry_id`, and production is refused
+without it.
+
+### What it buys
+
+Yield for **this batch**, not an average over a machine-day.
+`v_production_material_balance` answers *"did this machine balance today"*;
+`v_batch_yield` answers *"did this run go well"*, which is the question an
+operator can still do something about.
+
+### The three shape decisions, as the factory answered them
+
+| Question | Answer | How it is enforced |
+|---|---|---|
+| Can one batch feed several runs? | Usually one, but do not forbid it | No constraint. The screen offers the newest batch and marks one that has already produced. A batch yielding two sizes is two entries by A11. |
+| Is the link required? | Yes, refuse without it | `DP012`, configurable through `production_requires_batch` |
+| Which batches may be chosen? | Any recent one on the same machine | Only the machine is checked |
+
+The time window is deliberately loose. Constraining it to the same shift or date
+would refuse the ordinary case of a machine charged near the end of a shift and
+run out in the next — which the Night shift, crossing midnight, does every time.
+
+### History
+
+The column is **nullable**. The 26 production entries recorded before this
+migration have no batch, and inventing one would be worse than admitting the
+gap: `v_batch_yield` simply does not see them, while the daily material balance
+still does. Nothing goes missing; it is only not attributable to a batch.
+
+### In the app
+
+The production screen picks the newest batch on the machine by default, because
+that is almost always the one just charged. With no batch at all it does not
+show a dead dropdown — it offers the Material tab, which is where the operator
+has to go anyway.
+
+The demo twin enforces the same rule. It previously kept no batches at all,
+because nothing read them back; it does now, or the demo APK would contradict
+the live one.
+
+Migration `0018_production_batch_link.sql`.

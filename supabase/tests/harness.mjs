@@ -75,6 +75,7 @@ export async function build({ seed = true, quiet = false, upto = null } = {}) {
     `${MIG}/0015_packaging_shifts_access.sql`,
     `${MIG}/0016_operator_material_entry.sql`,
     `${MIG}/0017_factory_identity.sql`,
+    `${MIG}/0018_production_batch_link.sql`,
   ];
   if (upto) {
     const cut = files.findIndex((f) => f.endsWith(upto));
@@ -117,6 +118,21 @@ export async function applyMigration(db, name) {
   await db.exec(`
     grant all on all tables in schema public to anon, authenticated, service_role;
   `);
+}
+
+/// Charges a machine with material and returns the batch id.
+///
+/// Since A37 a production entry belongs to the batch it came out of, so a test
+/// that records production needs a batch first — exactly as the floor does.
+/// Call it inside an `asUser` block: the caller must be an administrator, or
+/// the operator assigned to that machine.
+export async function chargeBatch(db, { machineId, shiftId, materialId, quantity = 25 }) {
+  const r = await db.query(
+    `select public.consume_raw_materials($1,$2,$3::jsonb,$4) as j`,
+    [machineId, shiftId,
+      JSON.stringify([{ raw_material_id: materialId, quantity }]),
+      crypto.randomUUID()]);
+  return r.rows[0].j.id;
 }
 
 // Run as the given profile's login, the way PostgREST would.

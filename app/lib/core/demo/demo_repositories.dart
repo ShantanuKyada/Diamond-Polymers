@@ -475,8 +475,15 @@ class DemoMixtureRepository implements MixtureRepository {
     String? remarks,
   }) async {
     return _latency(() {
-      // The same refusal consume_raw_materials() gives an operator.
-      if (!_store.signedInIsAdmin) throw _refused;
+      // A34: an operator records their own machine; an administrator may record
+      // any. The same split consume_raw_materials() makes, and the same codes:
+      // DP006 for the wrong machine, which is what assert_can_record() raises.
+      if (!_store.signedInIsAdmin && !_store.isAssignedTo(machineId)) {
+        throw const AppException(
+          kind: AppErrorKind.authorization,
+          message: 'You are not currently assigned to that machine.',
+        );
+      }
 
       if (!_store.usedClientRefs.add(clientRef)) {
         return const MixtureResult(
@@ -521,11 +528,37 @@ class DemoMixtureRepository implements MixtureRepository {
 
       _store.refreshStatuses();
 
-      return MixtureResult(
-        id: _store.nextId('mix'),
-        duplicate: false,
-        totalQuantity: total,
-      );
+      // The batch is kept, because production now points at it (A37).
+      final id = _store.nextId('mix');
+      final when = entryDate ?? DateTime.now();
+      _store.mixtures.add({
+        'mixture_entry_id': id,
+        'entry_date': Fmt.isoDate(when),
+        'machine_id': machineId,
+        'shift_name': _store.nameOf(_store.shifts, 'id', shiftId),
+        'operator_name':
+            _store.nameOf(_store.staff, 'id', _store.signedInProfileId ?? ''),
+        'charged_kg': total,
+        'runs': 0,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+
+      return MixtureResult(id: id, duplicate: false, totalQuantity: total);
+    });
+  }
+
+  @override
+  Future<List<MixtureBatch>> recentBatches({
+    required String machineId,
+    int limit = 15,
+  }) async {
+    return _latency(() {
+      final rows = _store.mixtures
+          .where((m) => m['machine_id'] == machineId)
+          .toList()
+        ..sort((a, b) =>
+            (b['created_at'] as String).compareTo(a['created_at'] as String));
+      return rows.take(limit).map(MixtureBatch.from).toList(growable: false);
     });
   }
 }

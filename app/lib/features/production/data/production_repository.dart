@@ -32,6 +32,9 @@ class ProductionRepository {
     int bagQuantity = 0,
     bool wastageUsed = false,
     double? wastageUsedKg,
+    // A37: the batch this run came out of. Required by the database unless
+    // `production_requires_batch` is turned off, so the screen must supply it.
+    String? mixtureEntryId,
   }) async {
     try {
       final response = await _client.rpc<Map<String, dynamic>>(
@@ -49,6 +52,7 @@ class ProductionRepository {
           'p_bag_quantity': bagQuantity,
           'p_wastage_used': wastageUsed,
           'p_wastage_used_kg': wastageUsed ? wastageUsedKg : null,
+          'p_mixture_entry_id': mixtureEntryId,
         },
       );
       return ProductionResult.from(response);

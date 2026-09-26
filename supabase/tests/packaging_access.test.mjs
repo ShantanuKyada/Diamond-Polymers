@@ -5,7 +5,7 @@
 // Morning and Night, several operators, admin against operator — plus the path
 // a live database takes: yesterday's schema with an Afternoon shift in it,
 // upgraded in place.
-import { build, asUser, applyMigration } from './harness.mjs';
+import { build, asUser, applyMigration, chargeBatch } from './harness.mjs';
 import { randomUUID } from 'node:crypto';
 
 process.on('unhandledRejection', (e) => {
@@ -67,14 +67,28 @@ const stock = async (type, size) => {
   return { bundles: num(r.quantity_bundles), bags: num(r.quantity_bags) };
 };
 
+// Since A37 a run belongs to a batch, so each machine is charged once and its
+// batch reused — a batch may feed several runs. Callers that want to test the
+// link itself pass their own.
+const batches = new Map();
+async function batchFor(machine, shift = MORNING) {
+  if (!batches.has(machine)) {
+    batches.set(machine, await chargeBatch(db,
+      { machineId: machine, shiftId: shift, materialId: RAIZIN, quantity: 500 }));
+  }
+  return batches.get(machine);
+}
+
 // record_production with the app's argument order.
-const produce = (o) => db.query(
+const produce = async (o) => db.query(
   `select public.record_production(
      p_machine_id := $1, p_shift_id := $2, p_pipe_type_id := $3,
      p_pipe_size_id := $4, p_bundle_quantity := $5, p_client_ref := $6,
-     p_bag_quantity := $7, p_wastage_used := $8, p_wastage_used_kg := $9) as j`,
+     p_bag_quantity := $7, p_wastage_used := $8, p_wastage_used_kg := $9,
+     p_mixture_entry_id := $10) as j`,
   [o.machine, o.shift ?? MORNING, o.type ?? TA, o.size ?? S1, o.bundles ?? 0,
-    o.ref ?? randomUUID(), o.bags ?? 0, o.used ?? false, o.usedKg ?? null]);
+    o.ref ?? randomUUID(), o.bags ?? 0, o.used ?? false, o.usedKg ?? null,
+    o.batch ?? await batchFor(o.machine, o.shift ?? MORNING)]);
 
 const dispatch = (o) => db.query(
   `select public.create_dispatch($1, $2::jsonb, $3, current_date, $4, $5, null) as j`,
@@ -275,8 +289,9 @@ await asUser(db, ADMIN, async () => {
   // The request's own example: 20 bundles and 10 bags to one buyer.
   await db.query(`select public.record_production(
     p_machine_id := $1, p_shift_id := $2, p_pipe_type_id := $3, p_pipe_size_id := $4,
-    p_bundle_quantity := 0, p_client_ref := $5, p_operator_id := $6, p_bag_quantity := 20)`,
-    [M1, MORNING, TA, S1, randomUUID(), RAVI_ID]);
+    p_bundle_quantity := 0, p_client_ref := $5, p_operator_id := $6, p_bag_quantity := 20,
+    p_mixture_entry_id := $7)`,
+    [M1, MORNING, TA, S1, randomUUID(), RAVI_ID, await batchFor(M1)]);
   b = await stock(TA, S1);
   const both = (await dispatch({
     buyer: 'ABC Industries', vehicle: 'gj xx-1234',

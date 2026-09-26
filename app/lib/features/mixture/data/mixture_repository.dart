@@ -53,6 +53,29 @@ class MixtureRepository {
       throw ErrorMapper.map(error, stack);
     }
   }
+
+  /// Recent batches on a machine, newest first (A37).
+  ///
+  /// Only the machine is filtered on, deliberately: a machine charged near the
+  /// end of a shift is often run out in the next, and the Night shift crosses
+  /// midnight every time. Narrowing to today or to one shift would hide the
+  /// batch the operator is actually standing in front of.
+  Future<List<MixtureBatch>> recentBatches({
+    required String machineId,
+    int limit = 15,
+  }) async {
+    try {
+      final rows = await _client
+          .from('v_batch_yield')
+          .select()
+          .eq('machine_id', machineId)
+          .order('created_at', ascending: false)
+          .limit(limit);
+      return rows.map(MixtureBatch.from).toList(growable: false);
+    } catch (error, stack) {
+      throw ErrorMapper.map(error, stack);
+    }
+  }
 }
 
 class MixtureLine {
@@ -89,4 +112,61 @@ class MixtureResult {
 
 final mixtureRepositoryProvider = Provider<MixtureRepository>((ref) {
   return MixtureRepository(ref.watch(supabaseClientProvider));
+});
+
+/// A material batch an operator can attribute production to (A37).
+///
+/// Read from `v_batch_yield`, which already knows what was charged and how many
+/// runs have come off it. `runs` is what lets the screen say "this batch has
+/// already produced once" rather than silently allowing a double-count the
+/// operator did not intend.
+class MixtureBatch {
+  const MixtureBatch({
+    required this.id,
+    required this.entryDate,
+    required this.machineId,
+    required this.chargedKg,
+    required this.runs,
+    required this.createdAt,
+    this.shiftName,
+    this.operatorName,
+  });
+
+  final String id;
+  final DateTime entryDate;
+  final String machineId;
+  final double chargedKg;
+  final int runs;
+  final DateTime createdAt;
+  final String? shiftName;
+  final String? operatorName;
+
+  bool get hasProduction => runs > 0;
+
+  factory MixtureBatch.from(Map<String, dynamic> row) => MixtureBatch(
+        id: row['mixture_entry_id'] as String,
+        entryDate: DateTime.tryParse(row['entry_date'] as String? ?? '') ??
+            DateTime.now(),
+        machineId: row['machine_id'] as String,
+        chargedKg: switch (row['charged_kg']) {
+          final num n => n.toDouble(),
+          final String s => double.tryParse(s) ?? 0,
+          _ => 0,
+        },
+        runs: switch (row['runs']) {
+          final num n => n.toInt(),
+          final String s => int.tryParse(s) ?? 0,
+          _ => 0,
+        },
+        createdAt: DateTime.tryParse(row['created_at'] as String? ?? '') ??
+            DateTime.now(),
+        shiftName: row['shift_name'] as String?,
+        operatorName: row['operator_name'] as String?,
+      );
+}
+
+/// The batches offered on the production screen, for one machine.
+final machineBatchesProvider =
+    FutureProvider.family<List<MixtureBatch>, String>((ref, machineId) {
+  return ref.watch(mixtureRepositoryProvider).recentBatches(machineId: machineId);
 });

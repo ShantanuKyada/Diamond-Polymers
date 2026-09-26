@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/error/app_exception.dart';
+import '../../../core/routing/routes.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/state_views.dart';
@@ -14,6 +16,7 @@ import '../../inventory/data/inventory_repository.dart';
 import '../../masters/data/masters_repository.dart';
 import '../../masters/data/settings_values.dart';
 import '../../masters/domain/masters.dart';
+import '../../mixture/data/mixture_repository.dart';
 import '../data/production_repository.dart';
 
 /// Production Entry — the operator records what came off the machine (§18,
@@ -52,6 +55,11 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen> {
   String? _shiftId;
   String? _pipeTypeId;
   String? _pipeSizeId;
+
+  /// The batch this run came out of (A37). Defaults to the most recent batch
+  /// on the machine, which is almost always the right one — the operator
+  /// charged it minutes ago.
+  String? _batchId;
 
   /// Null until the operator answers — the question is asked, not assumed.
   bool? _wastageUsed;
@@ -195,6 +203,15 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen> {
                 assignment: assignment,
                 date: _entryDate,
                 onPickDate: _pickDate,
+              ),
+
+              const SizedBox(height: 20),
+              const _Label(text: 'Material batch'),
+              const SizedBox(height: 8),
+              _BatchPicker(
+                machineId: assignment.machineId,
+                selected: _batchId,
+                onSelect: (id) => setState(() => _batchId = id),
               ),
 
               const SizedBox(height: 20),
@@ -485,6 +502,7 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen> {
             wastageUsed: _wastageUsed == true,
             wastageUsedKg: _wastageUsed == true ? _usedWastageKg : null,
             remarks: _remarks.text.trim().isEmpty ? null : _remarks.text.trim(),
+            mixtureEntryId: _batchId,
           );
 
       if (!mounted) return;
@@ -874,6 +892,98 @@ class _Line extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Which material batch this run came out of (A37).
+///
+/// Defaults to the newest batch on the machine, because that is almost always
+/// the one the operator just charged. A batch that has already produced is
+/// still offered — one batch can yield two sizes — but it says so, because
+/// picking the wrong one is how a run gets counted against the wrong material.
+///
+/// With no batch at all the answer is not a disabled dropdown but a way out:
+/// the Material tab, which is where the operator has to go anyway.
+class _BatchPicker extends ConsumerWidget {
+  const _BatchPicker({
+    required this.machineId,
+    required this.selected,
+    required this.onSelect,
+  });
+
+  final String machineId;
+  final String? selected;
+  final ValueChanged<String?> onSelect;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final batches = ref.watch(machineBatchesProvider(machineId));
+
+    return batches.when(
+      loading: () => const LinearProgressIndicator(minHeight: 2),
+      error: (error, stack) => Text(
+        ErrorMapper.map(error, stack).message,
+        style: TextStyle(color: scheme.error),
+      ),
+      data: (rows) {
+        if (rows.isEmpty) {
+          return Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: scheme.errorContainer.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.science_outlined, size: 18,
+                    color: scheme.onErrorContainer),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'No material recorded for this machine yet. Record what '
+                    'went in first — production is linked to it.',
+                    style: TextStyle(color: scheme.onErrorContainer),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () =>
+                      context.goNamed(AppRoute.operatorMaterialEntry.name),
+                  child: const Text('Record'),
+                ),
+              ],
+            ),
+          );
+        }
+
+        // Newest first, so the default is the batch just charged.
+        final value = selected ?? rows.first.id;
+        if (selected == null) {
+          WidgetsBinding.instance
+              .addPostFrameCallback((_) => onSelect(rows.first.id));
+        }
+
+        return DropdownButtonFormField<String>(
+          initialValue: value,
+          isExpanded: true,
+          decoration: const InputDecoration(border: OutlineInputBorder()),
+          items: [
+            for (final batch in rows)
+              DropdownMenuItem(
+                value: batch.id,
+                child: Text(
+                  '${Fmt.relativeDay(batch.entryDate)} · '
+                  '${Fmt.quantity(batch.chargedKg)} kg'
+                  '${batch.shiftName == null ? '' : ' · ${batch.shiftName}'}'
+                  '${batch.hasProduction ? '  (already produced)' : ''}',
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+          ],
+          onChanged: onSelect,
+        );
+      },
     );
   }
 }

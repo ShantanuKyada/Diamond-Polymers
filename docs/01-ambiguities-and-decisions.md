@@ -161,13 +161,20 @@ another.
 §36 and §60 RULE 8. Operators log multiple entries per shift. Simplest reasonable
 option, and it keeps the confirmation screen in §44 readable.
 
-## A12. Is a mixture batch linked to production entries? — DEFERRED (§61 flagged this)
+## A12. Is a mixture batch linked to production entries? — RESOLVED by A37
 
 **Decision:** no link. The factory has not defined a recipe, a batch yield, or whether
 one mix feeds several entries. `production_entries.mixture_entry_id` is deliberately
 **not** added, because that column would encode a guess about the process. Both entry
 types already share date + machine + shift, which is enough to correlate them in
 reports.
+
+**Superseded (September 2026).** The factory has now described the process: the
+operator charges the machine and records the material, then records the output
+when the run finishes. Those are two halves of one run, so the link exists after
+all. `production_entries.mixture_entry_id` was added in `0018`, and the guess
+this entry refused to make turned out to be answerable simply by asking. See
+**A37** in [08-packaging-shifts-access.md](08-packaging-shifts-access.md).
 
 ## A13. Recipes, bundle weight, pipe length per bundle — PARTLY RESOLVED by A21
 
