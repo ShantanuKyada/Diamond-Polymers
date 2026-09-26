@@ -244,3 +244,40 @@ pipe types, sizes, raw materials, shifts) and the rules the database calculates
 by. None of that is a preference, and the name sent people looking for something
 else. Renamed to **Configuration**; the route stays `/admin/settings`, which is
 internal.
+
+## A36. Dispatch paperwork is a challan, not an invoice — RESOLVED
+
+The factory asked for "an invoice with all the details" attached to a dispatch.
+There are no prices anywhere in this system — accounting and GST were excluded
+by design — so an invoice in the strict sense could not be produced without a
+price list, GST rates, HSN codes and a statutory numbering series.
+
+**Decision:** produce a **delivery challan** now, and build it so prices can be
+added later without redrawing it. That matches how most factories already work:
+the challan travels with the goods, accounts raise the tax invoice separately.
+
+The document states plainly on its face: *"Not a tax invoice. Issued for
+delivery of goods only."* — so nobody files it as one.
+
+**Designed for the later addition.** The line table is assembled from a list of
+column descriptors, so a rate and an amount become two more entries plus a
+totals block. The header, the layout and the sharing path do not change.
+
+**The number is derived, not counted.** `DC-20260926-A1B2` — prefix, dispatch
+date, and four characters from the dispatch id. A statutory sequential series
+needs decisions this project has not taken (when it resets, what happens to a
+cancelled number, who owns the gap), and those belong with the invoice work.
+Deriving it means the number on the paper always leads back to exactly one
+record, which is what makes a challan useful in a dispute.
+
+**The factory's own details are configuration** (`0017_factory_identity.sql`):
+address, phone, GSTIN, challan prefix and an optional footer, all editable under
+Configuration. They default to blank, so an unfinished challan looks unfinished
+rather than carrying a convincing placeholder out to a buyer. A blank GSTIN line
+is omitted entirely rather than printed empty.
+
+A missing address warns but does not block — the lorry is waiting, and a challan
+with a visible gap beats no challan.
+
+Shared or printed through `printing`, which covers WhatsApp, email and a printer
+from one sheet and works with no signal.

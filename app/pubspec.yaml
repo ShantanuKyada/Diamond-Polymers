@@ -40,6 +40,12 @@ dependencies:
   intl: ^0.20.3
   uuid: ^4.6.0
 
+  # Delivery challan. `pdf` builds the document; `printing` hands it to the
+  # phone's share sheet or a printer. Both work offline — the challan has to be
+  # producible on a factory floor with no signal, standing next to the lorry.
+  pdf: ^3.11.3
+  printing: ^5.14.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

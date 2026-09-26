@@ -74,6 +74,7 @@ export async function build({ seed = true, quiet = false, upto = null } = {}) {
     `${MIG}/0014_payroll_views_rls.sql`,
     `${MIG}/0015_packaging_shifts_access.sql`,
     `${MIG}/0016_operator_material_entry.sql`,
+    `${MIG}/0017_factory_identity.sql`,
   ];
   if (upto) {
     const cut = files.findIndex((f) => f.endsWith(upto));

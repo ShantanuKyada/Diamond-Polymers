@@ -13,6 +13,7 @@ import '../../inventory/data/inventory_repository.dart';
 import '../../masters/data/masters_repository.dart';
 import '../../masters/domain/masters.dart';
 import '../data/dispatch_repository.dart';
+import 'challan_action.dart';
 
 /// Dispatch history, and the entry point for recording a new one (§22).
 class DispatchScreen extends ConsumerWidget {
@@ -111,13 +112,13 @@ String _packed(int bundles, int bags) {
   return parts.isEmpty ? '—' : parts.join(' · ');
 }
 
-class _DispatchCard extends StatelessWidget {
+class _DispatchCard extends ConsumerWidget {
   const _DispatchCard({required this.dispatch});
 
   final Dispatch dispatch;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
 
@@ -215,6 +216,15 @@ class _DispatchCard extends StatelessWidget {
                 ),
               ),
             ],
+            const SizedBox(height: 4),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: () => showChallanOptions(context, ref, dispatch),
+                icon: const Icon(Icons.description_outlined, size: 18),
+                label: const Text('Challan'),
+              ),
+            ),
           ],
         ),
       ),
