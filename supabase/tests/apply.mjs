@@ -48,6 +48,7 @@ const files = [
   // 0015 adds no enum values, so it stays inside a transaction and lands whole
   // or not at all.
   '0015_packaging_shifts_access.sql',
+  '0016_operator_material_entry.sql',
 ].map((n) => ({ name: n, path: join(MIG, n) }));
 
 if (withSeed) {

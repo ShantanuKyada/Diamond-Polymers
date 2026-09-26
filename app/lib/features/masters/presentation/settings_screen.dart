@@ -27,7 +27,7 @@ class SettingsScreen extends ConsumerWidget {
     final settings = ref.watch(settingsProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
+      appBar: AppBar(title: const Text('Configuration')),
       body: RefreshIndicator(
         onRefresh: () async => ref.invalidate(settingsProvider),
         child: ListView(

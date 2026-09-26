@@ -131,6 +131,12 @@ final routerProvider = Provider<GoRouter>((ref) {
               selectedIcon: Icon(Icons.home_rounded),
               label: 'Home',
             ),
+            // Material before Production, because that is the order the work
+            // happens in: material goes into the machine, product comes out.
+            NavigationDestination(
+              icon: Icon(Icons.science_outlined),
+              label: 'Material',
+            ),
             NavigationDestination(
               icon: Icon(Icons.add_box_outlined),
               label: 'Production',
@@ -149,6 +155,11 @@ final routerProvider = Provider<GoRouter>((ref) {
           _branch(
             AppRoute.operatorHome,
             (context, state) => const OperatorHomeScreen(),
+          ),
+          _branch(
+            AppRoute.operatorMaterialEntry,
+            (context, state) =>
+                const MixtureEntryScreen(mode: MaterialEntryMode.operator),
           ),
           _branch(
             AppRoute.productionEntry,

@@ -261,18 +261,29 @@ section('The mixture payload, in the exact shape the app sends');
 // renamed key inside that array would not be caught by any signature check —
 // the function would simply read null and raise a validation error on the floor.
 //
-// Material entry is admin-only (A30), so the operator is refused first and the
-// rest of the contract runs as the administrator.
+// A34: an operator records material for their own machine. The line shape the
+// app sends is the same either way, so it is worth checking from the operator
+// side — that is the caller the screen now uses most.
 await asUser(db, RAVI_AUTH, async () => {
   const machine = (await db.query(`select id from machines where code='M1'`)).rows[0].id;
   const shift = (await db.query(`select id from shifts where name='Morning'`)).rows[0].id;
   const raizin = (await db.query(`select id from raw_materials where code='RM-RAIZIN'`)).rows[0].id;
-  const state = await db.query(
-    `select public.consume_raw_materials($1,$2,$3::jsonb,$4)`,
+
+  const ok = await db.query(
+    `select public.consume_raw_materials($1,$2,$3::jsonb,$4) as j`,
     [machine, shift, JSON.stringify([{ raw_material_id: raizin, quantity: 1 }]),
+      randomUUID()]).then((r) => r.rows[0].j).catch((e) => e.code);
+  check('an operator can record material for their own machine',
+    ok && ok.duplicate === false, JSON.stringify(ok));
+
+  // The boundary moved rather than disappeared: another machine is still out.
+  const other = (await db.query(`select id from machines where code='M2'`)).rows[0].id;
+  const refused = await db.query(
+    `select public.consume_raw_materials($1,$2,$3::jsonb,$4)`,
+    [other, shift, JSON.stringify([{ raw_material_id: raizin, quantity: 1 }]),
       randomUUID()]).then(() => null).catch((e) => e.code);
-  check('an operator cannot record a material entry', state === 'DP004',
-    `got ${state}`);
+  check('but not for a machine they are not assigned to', refused === 'DP006',
+    `got ${refused}`);
 });
 
 await asUser(db, ADMIN_AUTH, async () => {

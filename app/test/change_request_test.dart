@@ -40,22 +40,44 @@ void main() {
   }
 
   group('Operator app', () {
-    testWidgets('has no Material Entry anywhere (A30)', (tester) async {
+    // A34 reverses A30. The operator loads their own machine, so they record
+    // it; the tab is back, and sits before Production because that is the order
+    // the work happens in.
+    testWidgets('has Material Entry, before Production (A34)', (tester) async {
       tallScreen(tester);
       await signIn(tester, 'ravi@diamondpolymers.local');
 
       final bar = find.byType(NavigationBar);
-      expect(find.descendant(of: bar, matching: find.text('Home')), findsOneWidget);
-      expect(find.descendant(of: bar, matching: find.text('Production')),
-          findsOneWidget);
-      expect(find.descendant(of: bar, matching: find.text('My Entries')),
-          findsOneWidget);
-      expect(find.descendant(of: bar, matching: find.text('Profile')),
-          findsOneWidget);
-      expect(find.descendant(of: bar, matching: find.text('Material')),
-          findsNothing);
+      for (final label in ['Home', 'Material', 'Production', 'My Entries',
+        'Profile']) {
+        expect(find.descendant(of: bar, matching: find.text(label)),
+            findsOneWidget,
+            reason: '$label should be in the operator bottom bar');
+      }
 
-      expect(find.textContaining('Raw Material'), findsNothing);
+      // Order matters: material in, then product out.
+      final materialX = tester.getCenter(
+          find.descendant(of: bar, matching: find.text('Material'))).dx;
+      final productionX = tester.getCenter(
+          find.descendant(of: bar, matching: find.text('Production'))).dx;
+      expect(materialX, lessThan(productionX));
+    });
+
+    testWidgets('material entry uses their own machine, not a picker (A34)',
+        (tester) async {
+      tallScreen(tester);
+      await signIn(tester, 'ravi@diamondpolymers.local');
+
+      await tester.tap(find.descendant(
+          of: find.byType(NavigationBar), matching: find.text('Material')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Material Entry'), findsWidgets);
+      // The machine is stated, never chosen: the database would refuse any
+      // other machine with DP006, so offering a choice would only mislead.
+      expect(find.text('Machine 1'), findsOneWidget);
+      expect(find.byType(DropdownButtonFormField<String>), findsOneWidget,
+          reason: 'only the shift is selectable, not the machine');
     });
 
     testWidgets('home shows attendance in place of material entry (A33)',

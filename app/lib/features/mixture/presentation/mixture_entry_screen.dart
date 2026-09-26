@@ -13,24 +13,43 @@ import '../../masters/data/masters_repository.dart';
 import '../../masters/domain/masters.dart';
 import '../data/mixture_repository.dart';
 
-/// Material Entry — an administrator records what went into a machine
-/// (§15, §16, A30).
+/// Who is filling this form in.
 ///
-/// Admin-only. The route lives under `/admin`, so the router turns an operator
-/// away, and `consume_raw_materials()` refuses anyone who is not an
-/// administrator — the screen being hidden is the least of the three guards.
+/// One screen, two callers (A34). The material inputs, the running total, the
+/// confirmation summary and the retry handling are identical either way — the
+/// only real difference is where the machine comes from, so duplicating the
+/// screen would have meant maintaining that arithmetic twice.
+enum MaterialEntryMode {
+  /// An administrator, who may record against any machine and is told which
+  /// operator the batch will be credited to.
+  admin,
+
+  /// An operator, recording the machine they are assigned to. They cannot
+  /// choose a different one — and the database refuses it anyway (DP006).
+  operator,
+}
+
+/// Material Entry — what went into a machine (§15, §16, A34).
 ///
-/// Three things it has to get right:
+/// Production has two halves: material in, product out. This is the first half.
 ///
-///   * the batch is credited to whoever runs the chosen machine, preferring the
-///     operator on the chosen shift, and the screen says who that is before
-///     anything is saved;
+/// Access (A34, reversing A30): an operator records their **own** machine,
+/// because they are the person loading it; an administrator may record any
+/// machine. `consume_raw_materials()` enforces exactly that, so the screen
+/// being scoped is a convenience rather than the protection.
+///
+/// Three things it has to get right, whichever mode it is in:
+///
+///   * the batch is credited to the right person — the operator themselves, or
+///     for an admin, whoever runs the chosen machine, named before saving;
 ///   * every material shows what is actually in stock beside its input, so a
 ///     short batch is obvious before it is submitted rather than after;
 ///   * the submission carries one reference for the whole attempt, reused on
 ///     retry, so a double tap on a bad connection records one batch.
 class MixtureEntryScreen extends ConsumerStatefulWidget {
-  const MixtureEntryScreen({super.key});
+  const MixtureEntryScreen({super.key, this.mode = MaterialEntryMode.admin});
+
+  final MaterialEntryMode mode;
 
   @override
   ConsumerState<MixtureEntryScreen> createState() => _MixtureEntryScreenState();
@@ -98,8 +117,66 @@ class _MixtureEntryScreenState extends ConsumerState<MixtureEntryScreen> {
 
   String? _machineId;
 
+  bool get _isOperator => widget.mode == MaterialEntryMode.operator;
+
   @override
   Widget build(BuildContext context) {
+    return _isOperator ? _buildOperator(context) : _buildAdmin(context);
+  }
+
+  /// The operator's machine is not a choice, so the form waits on their
+  /// assignment rather than on the machine list. Without one the database
+  /// would refuse the batch with DP006 whatever was typed, so the form is not
+  /// offered at all.
+  Widget _buildOperator(BuildContext context) {
+    final dashboard = ref.watch(operatorDashboardProvider);
+    final materials = ref.watch(rawMaterialsProvider);
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Material Entry')),
+      body: AsyncView<OperatorDashboard>(
+        value: dashboard,
+        onRetry: () => ref.invalidate(operatorDashboardProvider),
+        builder: (context, data) {
+          final assignment = data.assignment;
+          if (assignment == null) {
+            return const Padding(
+              padding: EdgeInsets.all(24),
+              child: EmptyView(
+                message: 'You are not assigned to a machine, so material '
+                    'cannot be recorded. Ask an administrator to assign you.',
+                icon: Icons.link_off_rounded,
+              ),
+            );
+          }
+
+          _machineId = assignment.machineId;
+
+          return AsyncView<List<RawMaterial>>(
+            value: materials,
+            onRetry: () => ref.invalidate(rawMaterialsProvider),
+            builder: (context, allMaterials) {
+              final usable =
+                  allMaterials.where((m) => m.active).toList(growable: false);
+              if (usable.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: EmptyView(
+                    message: 'No raw materials are configured.',
+                    icon: Icons.science_outlined,
+                  ),
+                );
+              }
+              return _form(context, const <Machine>[], usable,
+                  fixedAssignment: assignment);
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildAdmin(BuildContext context) {
     final machines = ref.watch(machinesProvider);
     final materials = ref.watch(rawMaterialsProvider);
 
@@ -202,15 +279,18 @@ class _MixtureEntryScreenState extends ConsumerState<MixtureEntryScreen> {
   Widget _form(
     BuildContext context,
     List<Machine> machines,
-    List<RawMaterial> materials,
-  ) {
+    List<RawMaterial> materials, {
+    OperatorAssignment? fixedAssignment,
+  }) {
     final scheme = Theme.of(context).colorScheme;
     final shifts = ref.watch(shiftsProvider).value ?? const <Shift>[];
     final assignments =
         ref.watch(assignmentsProvider).value ?? const <MachineAssignment>[];
 
-    _shiftId ??= _currentShiftId(shifts);
-    final target = _target(machines, shifts);
+    // An operator's shift comes from their assignment when they have a fixed
+    // one; otherwise, as for an admin, from the clock.
+    _shiftId ??= fixedAssignment?.shiftId ?? _currentShiftId(shifts);
+    final target = fixedAssignment ?? _target(machines, shifts);
 
     return Column(
       children: [
@@ -218,14 +298,22 @@ class _MixtureEntryScreenState extends ConsumerState<MixtureEntryScreen> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
             children: [
-              _MachineCard(
-                machines: machines,
-                selectedId: _machineId,
-                creditedTo: _machineId == null ? null : _creditedTo(assignments),
-                entryDate: _entryDate,
-                onSelect: (id) => setState(() => _machineId = id),
-                onPickDate: _pickDate,
-              ),
+              if (fixedAssignment != null)
+                _AssignedMachineCard(
+                  assignment: fixedAssignment,
+                  entryDate: _entryDate,
+                  onPickDate: _pickDate,
+                )
+              else
+                _MachineCard(
+                  machines: machines,
+                  selectedId: _machineId,
+                  creditedTo:
+                      _machineId == null ? null : _creditedTo(assignments),
+                  entryDate: _entryDate,
+                  onSelect: (id) => setState(() => _machineId = id),
+                  onPickDate: _pickDate,
+                ),
               const SizedBox(height: 16),
               if (shifts.isNotEmpty)
                 DropdownButtonFormField<String>(
@@ -738,6 +826,66 @@ class _ConfirmSheet extends StatelessWidget {
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
             child: const Text('Go back and change it'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The operator's own machine, shown rather than chosen (A34).
+///
+/// Deliberately not a disabled dropdown: a control that looks interactive and
+/// is not invites tapping. This states the fact and moves on.
+class _AssignedMachineCard extends StatelessWidget {
+  const _AssignedMachineCard({
+    required this.assignment,
+    required this.entryDate,
+    required this.onPickDate,
+  });
+
+  final OperatorAssignment assignment;
+  final DateTime entryDate;
+  final VoidCallback onPickDate;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.precision_manufacturing_outlined, color: scheme.primary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  assignment.machineName,
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                Text(
+                  assignment.shiftName == null
+                      ? assignment.machineCode
+                      : '${assignment.machineCode} · ${assignment.shiftName}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          TextButton.icon(
+            onPressed: onPickDate,
+            icon: const Icon(Icons.calendar_today_rounded, size: 16),
+            label: Text(Fmt.relativeDay(entryDate)),
           ),
         ],
       ),

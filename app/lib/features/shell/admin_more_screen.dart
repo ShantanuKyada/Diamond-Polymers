@@ -96,9 +96,14 @@ class AdminMoreScreen extends ConsumerWidget {
                 label: 'Notifications',
                 route: AppRoute.notifications,
               ),
+              // "Settings" undersold it: the screen is the factory's
+              // catalogues — products, pipe types, sizes, materials, shifts —
+              // plus the rules the database calculates by. None of that is a
+              // preference, and calling it Settings sent people looking for
+              // something else.
               _Link(
-                icon: Icons.settings_outlined,
-                label: 'Settings',
+                icon: Icons.tune_rounded,
+                label: 'Configuration',
                 route: AppRoute.adminSettings,
               ),
             ],

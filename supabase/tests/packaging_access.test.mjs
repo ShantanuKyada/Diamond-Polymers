@@ -364,17 +364,55 @@ await asUser(db, ADMIN, async () => {
 });
 
 // =============================================================================
-section('Material entry is admin-only');
+// A34 (0016) reverses A30: the operator loads their own machine, so the
+// operator records it. The boundary moved from "admins only" to "your own
+// machine only" — which is a narrowing for everyone except the person actually
+// standing at the machine.
+section('Material entry — an operator records their own machine (A34)');
 
 await asUser(db, RAVI, async () => {
-  const s = await sqlstate(() => db.query(
+  const r = (await db.query(
+    `select public.consume_raw_materials($1,$2,$3::jsonb,$4) as j`,
+    [M1, MORNING, JSON.stringify([{ raw_material_id: RAIZIN, quantity: 1 }]),
+      randomUUID()])).rows[0].j;
+  check('an operator can record a batch for their own machine',
+    r.duplicate === false && Number(r.total_quantity) === 1, JSON.stringify(r));
+
+  const e = await one(`select operator_id, machine_id from mixture_entries where id=$1`, [r.id]);
+  check('and the batch is credited to them, on that machine',
+    e.operator_id === RAVI_ID && e.machine_id === M1);
+
+  // The two things the old admin-only rule was protecting against are still
+  // refused — they are just refused precisely now, rather than wholesale.
+  const other = await sqlstate(() => db.query(
     `select public.consume_raw_materials($1,$2,$3::jsonb,$4)`,
-    [M1, MORNING, JSON.stringify([{ raw_material_id: RAIZIN, quantity: 1 }]), randomUUID()]));
-  check('an operator is refused by the function itself', s === 'DP004', `got ${s}`);
+    [M2, MORNING, JSON.stringify([{ raw_material_id: RAIZIN, quantity: 1 }]),
+      randomUUID()]));
+  check('but not for a machine they are not assigned to', other === 'DP006', `got ${other}`);
+
+  const someoneElse = await sqlstate(() => db.query(
+    `select public.consume_raw_materials($1,$2,$3::jsonb,$4,$5)`,
+    [M1, MORNING, JSON.stringify([{ raw_material_id: RAIZIN, quantity: 1 }]),
+      randomUUID(), SURESH_ID]));
+  check('and not on somebody else\'s behalf', someoneElse === 'DP004', `got ${someoneElse}`);
+
   const direct = await sqlstate(() => db.query(
     `insert into mixture_entries (machine_id, operator_id, shift_id, total_quantity, client_ref)
      values ($1,$2,$3,1,$4)`, [M1, RAVI_ID, MORNING, randomUUID()]));
-  check('and cannot insert a mixture row directly', direct !== null, `got ${direct}`);
+  check('the function is still the only way in — no INSERT policy',
+    direct !== null, `got ${direct}`);
+
+  // The all-or-nothing rule is unchanged by the new caller.
+  const before = Number((await one(
+    `select quantity from raw_material_stock where raw_material_id=$1`, [RAIZIN])).quantity);
+  const short = await sqlstate(() => db.query(
+    `select public.consume_raw_materials($1,$2,$3::jsonb,$4)`,
+    [M1, MORNING, JSON.stringify([{ raw_material_id: RAIZIN, quantity: 99999999 }]),
+      randomUUID()]));
+  const after = Number((await one(
+    `select quantity from raw_material_stock where raw_material_id=$1`, [RAIZIN])).quantity);
+  check('a short batch is still refused for an operator', short === 'DP001', `got ${short}`);
+  check('and still deducts nothing', before === after, `${before} -> ${after}`);
 });
 
 await asUser(db, ADMIN, async () => {

@@ -193,3 +193,54 @@ safe on a database with history: existing entries and dispatches keep their
 meaning, the Afternoon shift is switched off rather than deleted, and any
 operator assigned to it is left without a shift and reported to
 administrators in the notification centre.
+
+---
+
+# September 2026, second change request
+
+## A34. Material Entry returns to the operator — RESOLVED (reverses A30)
+
+**A30 was wrong about who does this job.** It moved Material Entry to
+administrators on the reasoning that drawing down raw stock is an
+administrative act. The factory's answer: every operator has their own machine
+and is the person physically loading it, so routing the record through an
+administrator produced late entries, not safer ones — the material moves whether
+or not anybody is free to write it down.
+
+**Decision:** an operator records material for **their own assigned machine**.
+An administrator keeps every power they had, including recording for any machine
+and naming the operator.
+
+The boundary did not disappear; it moved from *"administrators only"* to *"your
+own machine only"*, which is narrower than A30 for everybody except the person
+standing at the machine. `consume_raw_materials()` now routes non-admins through
+`app.assert_can_record()` — the same guard `record_production()` has always used,
+so the two halves of production are finally governed by one rule instead of two:
+
+| Attempt | Result |
+|---|---|
+| Operator records their own machine | allowed |
+| Operator records another machine | `DP006` |
+| Operator records for another person | `DP004` |
+| Administrator records any machine | allowed |
+
+Unchanged: there is still no INSERT policy on the mixture tables, so the
+function remains the only write path; the basket is still validated whole before
+anything is deducted; and the client reference still makes a retry safe.
+
+**In the app:** the operator bottom bar regains a **Material** tab, placed
+*before* Production because that is the order the work happens in. The machine is
+stated rather than chosen — a disabled dropdown would invite tapping, and the
+database would refuse any other machine anyway. One screen serves both callers
+(`MaterialEntryMode`), since only the source of the machine differs.
+
+Migration `0016_operator_material_entry.sql`. It replaces one authorisation
+block and nothing else.
+
+## A35. "Settings" renamed to "Configuration" — RESOLVED
+
+The **More → System → Settings** entry held the factory's catalogues (products,
+pipe types, sizes, raw materials, shifts) and the rules the database calculates
+by. None of that is a preference, and the name sent people looking for something
+else. Renamed to **Configuration**; the route stays `/admin/settings`, which is
+internal.

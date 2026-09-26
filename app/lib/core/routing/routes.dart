@@ -27,6 +27,11 @@ enum AppRoute {
   /// Material Entry. Admin-only since A30 — the `/admin` prefix is what puts
   /// it behind the router's guard.
   mixtureEntry('/admin/material'),
+  // A34: the operator records the machine they are assigned to. Separate route
+  // rather than a shared one, because the guard works on the path prefix — an
+  // admin route an operator may use would be a hole in that rule, not an
+  // exception to it.
+  operatorMaterialEntry('/op/material'),
 
   // Master-data catalogues reached from Settings. They live under `/admin` for
   // the same reason everything else does: the guard keys off the prefix, so a
