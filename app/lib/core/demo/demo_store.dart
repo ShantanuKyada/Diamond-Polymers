@@ -64,6 +64,9 @@ class DemoStore {
   final List<Map<String, dynamic>> attendanceRows = [];
   final List<Map<String, dynamic>> monthlyAttendanceRows = [];
   final List<Map<String, dynamic>> payslipRows = [];
+  final List<Map<String, dynamic>> payrollPeriodRows = [];
+  final List<Map<String, dynamic>> staffPayRows = [];
+  final List<Map<String, dynamic>> deductionRows = [];
   final List<Map<String, dynamic>> advanceRows = [];
 
   /// Who is signed in. Set by the demo auth repository, and read by the
@@ -735,11 +738,38 @@ class DemoStore {
         'overtime_hours': overtime,
       });
 
-      final basic = id == adminId ? 42000.0 : 21000.0;
-      final hourly = basic / 26 / 8;
-      final overtimeAmount = (overtime * hourly * 1.5).roundToDouble();
-      final deductions = (absent * (basic / 26)).roundToDouble();
+      // A salary, less what was drawn and what was deducted by hand (A38).
+      // Attendance is above and stays above: it no longer touches this.
+      final salary = id == adminId ? 42000.0 : 21000.0;
       final advance = id == raviId ? 3000.0 : 0.0;
+      final deductions = id == raviId ? 200.0 : 0.0;
+
+      staffPayRows.add({
+        'profile_id': id,
+        'employee_code': person['employee_code'],
+        'staff_name': person['name'],
+        'role': person['role'],
+        'salary_structure_id': 'sal-$id',
+        'monthly_salary': salary,
+        'effective_from': Fmt.isoDate(DateTime(today.year, 1, 1)),
+        'upcoming_salary': null,
+        'upcoming_from': null,
+        'outstanding_advance': advance,
+      });
+
+      if (deductions > 0) {
+        deductionRows.add({
+          'id': nextId('ded'),
+          'profile_id': id,
+          'employee_code': person['employee_code'],
+          'staff_name': person['name'],
+          'period_month': Fmt.isoDate(monthStart),
+          'label': 'Canteen',
+          'amount': deductions,
+          'remarks': null,
+          'created_at': monthStart.toIso8601String(),
+        });
+      }
 
       payslipRows.add({
         'id': nextId('pay'),
@@ -749,23 +779,29 @@ class DemoStore {
         'role': person['role'],
         'period_month': Fmt.isoDate(monthStart),
         'period_status': 'DRAFT',
-        'monthly_salary': basic,
-        'present_days': present,
-        'absent_days': absent,
-        'payable_days': (present + leave).toDouble(),
-        'calendar_days': 26,
-        'basic_amount': basic,
-        'overtime_hours': overtime,
-        'overtime_rate_per_hour': hourly * 1.5,
-        'overtime_amount': overtimeAmount,
-        'additions_amount': 0.0,
+        'monthly_salary': salary,
         'deductions_amount': deductions,
         'advance_recovered': advance,
-        'gross_amount': basic + overtimeAmount,
-        'net_payable': basic + overtimeAmount - deductions - advance,
+        'net_payable': salary - deductions - advance,
         'created_at': monthStart.toIso8601String(),
       });
     }
+
+    payrollPeriodRows.add({
+      'payroll_period_id': nextId('period'),
+      'period_month': Fmt.isoDate(monthStart),
+      'status': 'DRAFT',
+      'payslip_count': payslipRows.length,
+      'salary_total': payslipRows.fold<double>(
+          0, (sum, r) => sum + (r['monthly_salary'] as double)),
+      'deductions_total': payslipRows.fold<double>(
+          0, (sum, r) => sum + (r['deductions_amount'] as double)),
+      'advance_recovered_total': payslipRows.fold<double>(
+          0, (sum, r) => sum + (r['advance_recovered'] as double)),
+      'net_total': payslipRows.fold<double>(
+          0, (sum, r) => sum + (r['net_payable'] as double)),
+      'finalised_at': null,
+    });
 
     advanceRows.addAll([
       {

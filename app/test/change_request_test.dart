@@ -12,6 +12,7 @@ import 'package:diamond_polymers/features/masters/data/settings_values.dart';
 import 'package:diamond_polymers/features/masters/domain/masters.dart';
 import 'package:diamond_polymers/features/masters/presentation/catalog_screens.dart';
 import 'package:diamond_polymers/features/mixture/data/mixture_repository.dart';
+import 'package:diamond_polymers/features/staff/presentation/staff_screens.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -392,6 +393,175 @@ void main() {
       expect(container.read(factoryNameProvider), AppConfig.factoryName);
       expect(container.read(wastageUnitProvider), 'kg');
       expect(container.read(currencySymbolProvider), isNotEmpty);
+    });
+  });
+
+  // A38. Payroll used to prorate a salary by attendance and pay statutory
+  // overtime. The factory does neither: a month's salary is a month's salary,
+  // and what somebody has drawn against it comes off. These pin that, because
+  // the difference between the two models is invisible on a screen that is
+  // only ever shown a full month.
+  group('Payroll is a salary less what was taken (A38)', () {
+    testWidgets('a payslip shows four figures and no overtime', (tester) async {
+      tallScreen(tester);
+      await tester.pumpWidget(demoScope(
+        child: MaterialApp(theme: AppTheme.light(), home: const SalaryScreen()),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Monthly salary'), findsWidgets);
+      expect(find.text('Net payable'), findsWidgets);
+      expect(find.text('Advance taken'), findsWidgets);
+
+      for (final gone in ['Basic', 'Overtime', 'Additions']) {
+        expect(find.text(gone), findsNothing,
+            reason: '$gone no longer exists in the calculation');
+      }
+    });
+
+    testWidgets('the Salaries tab says what each person is on', (tester) async {
+      tallScreen(tester);
+      await tester.pumpWidget(demoScope(
+        child: MaterialApp(theme: AppTheme.light(), home: const SalaryScreen()),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Salaries'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Monthly salary'), findsWidgets);
+      expect(find.text('Ravi Kumar'), findsWidgets);
+    });
+
+    test('the demo pays the salary whatever the attendance says', () async {
+      final store = DemoStore();
+      final repo = DemoStaffRepository(store);
+      final month = DateTime.now();
+
+      // Ravi is marked absent in the demo month and has drawn 3000.
+      final before = (await repo.staffPay())
+          .firstWhere((p) => p.employeeCode == 'EMP-101');
+      expect(before.outstandingAdvance, 3000);
+
+      await repo.runPayroll(month);
+      final slip = (await repo.payslips(month: month))
+          .firstWhere((s) => s.employeeCode == 'EMP-101');
+
+      expect(slip.monthlySalary, before.monthlySalary);
+      expect(slip.advanceRecovered, 3000);
+      expect(slip.netPayable,
+          slip.monthlySalary - slip.deductionsAmount - slip.advanceRecovered);
+    });
+
+    test('an advance comes off the next payslip, once', () async {
+      final store = DemoStore();
+      final repo = DemoStaffRepository(store);
+      final month = DateTime.now();
+      final ganesh = (await repo.staffPay())
+          .firstWhere((p) => p.employeeCode == 'EMP-104');
+
+      await repo.issueAdvance(
+        profileId: ganesh.profileId,
+        amount: 300,
+        clientRef: 'ref-1',
+      );
+      await repo.runPayroll(month);
+
+      var slip = (await repo.payslips(month: month))
+          .firstWhere((s) => s.employeeCode == 'EMP-104');
+      expect(slip.advanceRecovered, 300);
+      expect(slip.netPayable, slip.monthlySalary - 300);
+
+      // Finalising is the point the money actually moves, so recalculating a
+      // draft beforehand must not recover it twice.
+      await repo.runPayroll(month);
+      slip = (await repo.payslips(month: month))
+          .firstWhere((s) => s.employeeCode == 'EMP-104');
+      expect(slip.advanceRecovered, 300);
+
+      await repo.finalisePayroll(month);
+      final after = (await repo.staffPay())
+          .firstWhere((p) => p.employeeCode == 'EMP-104');
+      expect(after.outstandingAdvance, 0);
+    });
+
+    test('recovery never pushes a payslip below zero', () async {
+      final store = DemoStore();
+      final repo = DemoStaffRepository(store);
+      final month = DateTime.now();
+      final ganesh = (await repo.staffPay())
+          .firstWhere((p) => p.employeeCode == 'EMP-104');
+
+      await repo.issueAdvance(
+        profileId: ganesh.profileId,
+        amount: ganesh.monthlySalary! * 5,
+        clientRef: 'ref-2',
+      );
+      await repo.runPayroll(month);
+
+      final slip = (await repo.payslips(month: month))
+          .firstWhere((s) => s.employeeCode == 'EMP-104');
+      expect(slip.netPayable, 0);
+      expect(slip.advanceRecovered, slip.monthlySalary);
+
+      // The rest is still owed; it carries to the month after.
+      await repo.finalisePayroll(month);
+      final after = (await repo.staffPay())
+          .firstWhere((p) => p.employeeCode == 'EMP-104');
+      expect(after.outstandingAdvance, ganesh.monthlySalary! * 4);
+    });
+
+    test('a finalised month refuses every further change', () async {
+      final store = DemoStore();
+      final repo = DemoStaffRepository(store);
+      final month = DateTime.now();
+
+      await repo.runPayroll(month);
+      await repo.finalisePayroll(month);
+
+      final ravi = (await repo.staffPay())
+          .firstWhere((p) => p.employeeCode == 'EMP-101');
+
+      expect(
+        () => repo.addDeduction(
+          profileId: ravi.profileId,
+          periodMonth: month,
+          label: 'Late',
+          amount: 100,
+          clientRef: 'ref-3',
+        ),
+        throwsA(isA<AppException>()
+            .having((e) => e.kind, 'kind', AppErrorKind.conflict)),
+      );
+      expect(() => repo.runPayroll(month), throwsA(isA<AppException>()));
+    });
+
+    test('a deduction bigger than the salary is refused by name', () async {
+      final store = DemoStore();
+      final repo = DemoStaffRepository(store);
+      final month = DateTime.now();
+      final ravi = (await repo.staffPay())
+          .firstWhere((p) => p.employeeCode == 'EMP-101');
+
+      final added = await repo.addDeduction(
+        profileId: ravi.profileId,
+        periodMonth: month,
+        label: 'Typo',
+        amount: ravi.monthlySalary! * 2,
+        clientRef: 'ref-4',
+      );
+
+      await expectLater(
+        repo.runPayroll(month),
+        throwsA(isA<AppException>()
+            .having((e) => e.message, 'message', contains('Ravi Kumar'))),
+      );
+
+      // And can be taken back, so one slip of the keyboard does not strand the
+      // month's payroll.
+      await repo.removeDeduction(added['id'] as String);
+      final result = await repo.runPayroll(month);
+      expect(result['payslips'], greaterThan(0));
     });
   });
 

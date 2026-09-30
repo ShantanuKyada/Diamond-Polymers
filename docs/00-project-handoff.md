@@ -89,9 +89,9 @@ orange **DEMO DATA** ribbon.
 | Dispatch | ✅ | ✅ | **Buyer, vehicle (required), bundles and bags** per product |
 | Wastage | ✅ | ✅ | Material loss vs production scrap, reusable flag |
 | Reports | ✅ | ✅ | Production (incl. bags, wastage used, by shift), dispatch, wastage, closing stock |
-| Staff → Punches, Salary | ✅ read-only | ✅ | See §8 |
+| Staff → Punches, Salary | ✅ Salary now writes: set a salary, give an advance, run and finalise a month (A38) | ✅ | See §8 |
 | Pipe manufacturing (weights, shredding, regrind) | partly surfaced | ✅ | `docs/04-pipe-manufacturing.md` |
-| Payroll engine | read-only views | ✅ | `docs/05-payroll.md` |
+| Payroll engine | ✅ simplified to salary − advances − deductions (A38) | ✅ | `docs/05-payroll.md` |
 
 There are no placeholder screens left. `PlaceholderScreen` was deleted.
 
@@ -100,8 +100,8 @@ There are no placeholder screens left. `PlaceholderScreen` was deleted.
 | Check | Command | Result |
 |---|---|---|
 | Static analysis | `cd app && flutter analyze` | No issues |
-| Flutter tests | `cd app && flutter test` | **103 passed** |
-| Database tests | `cd supabase/tests && npm install && npm test` | **354 passed** (70 + 52 + 59 + 78 + 69 + 26) |
+| Flutter tests | `cd app && flutter test` | **123 passed** |
+| Database tests | `cd supabase/tests && npm install && npm test` | **437 passed** (81 + 63 + 72 + 83 + 91 + 26 + 21) |
 | Release APK | `flutter build apk --release …` | Builds locally in ~2–4 min |
 
 One of those suites (`api_coverage.test.mjs`) reads every Supabase call out of

@@ -51,6 +51,7 @@ const files = [
   '0016_operator_material_entry.sql',
   '0017_factory_identity.sql',
   '0018_production_batch_link.sql',
+  '0019_simple_payroll.sql',
 ].map((n) => ({ name: n, path: join(MIG, n) }));
 
 if (withSeed) {

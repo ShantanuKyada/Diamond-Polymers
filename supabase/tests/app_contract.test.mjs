@@ -82,6 +82,29 @@ const READS = [
   ['v_attendance_days',
     'profile_id, staff_name, employee_code, work_date, status, worked_hours, ' +
     'overtime_hours, punch_in_at, punch_out_at, shift_name'],
+  // Payroll, simplified (0019). The payslip is four figures now; a column list
+  // that still mentions basic or gross has not been updated and will 400 on a
+  // real device.
+  ['v_monthly_attendance',
+    'profile_id, staff_name, employee_code, present_days, absent_days, ' +
+    'paid_leave_days, worked_hours, overtime_hours'],
+  ['v_payslips',
+    'id, profile_id, staff_name, employee_code, role, period_month, ' +
+    'period_status, monthly_salary, deductions_amount, advance_recovered, ' +
+    'net_payable'],
+  ['v_payroll_summary',
+    'payroll_period_id, period_month, status, payslip_count, salary_total, ' +
+    'deductions_total, advance_recovered_total, net_total, finalised_at'],
+  ['v_staff_pay',
+    'profile_id, employee_code, staff_name, role, salary_structure_id, ' +
+    'monthly_salary, effective_from, upcoming_salary, upcoming_from, ' +
+    'outstanding_advance'],
+  ['v_staff_deductions',
+    'id, profile_id, employee_code, staff_name, period_month, label, amount, ' +
+    'remarks, created_at'],
+  ['v_staff_advances',
+    'profile_id, staff_name, employee_code, total_issued, total_recovered, ' +
+    'outstanding'],
 ];
 
 await asUser(db, ADMIN_AUTH, async () => {
@@ -129,6 +152,19 @@ const RPCS = [
     ['p_raw_material_id', 'p_delta', 'p_client_ref', 'p_remarks']],
   ['adjust_finished_goods_stock',
     ['p_pipe_type_id', 'p_pipe_size_id', 'p_delta', 'p_client_ref', 'p_remarks']],
+  // Payroll, simplified (0019). set_salary_structure lost two parameters here,
+  // which PostgREST would report as a missing function rather than a missing
+  // argument — worth pinning precisely for that reason.
+  ['set_salary_structure',
+    ['p_profile_id', 'p_monthly_salary', 'p_effective_from', 'p_remarks']],
+  ['issue_salary_advance',
+    ['p_profile_id', 'p_amount', 'p_client_ref', 'p_entry_date', 'p_remarks']],
+  ['add_staff_adjustment',
+    ['p_profile_id', 'p_period_month', 'p_component_type', 'p_label',
+      'p_amount', 'p_client_ref', 'p_remarks']],
+  ['remove_staff_adjustment', ['p_id']],
+  ['run_payroll', ['p_period_month', 'p_remarks']],
+  ['finalise_payroll', ['p_period_month']],
 ];
 
 for (const [name, params] of RPCS) {
@@ -141,6 +177,17 @@ for (const [name, params] of RPCS) {
     check(`${name} exists`, false, 'function not found');
     continue;
   }
+
+  // PostgREST picks an overload by the argument names it was given. Two
+  // functions of the same name and it cannot choose, so every call fails with
+  // PGRST203 — which reads like the function is missing. A migration that
+  // changes a signature has to drop the old one, and this is what says so.
+  if (rows.rows.length > 1) {
+    check(`${name} has exactly one signature`, false,
+      `${rows.rows.length} overloads; PostgREST cannot choose between them`);
+    continue;
+  }
+
   const actual = rows.rows[0].args.split(',').filter(Boolean);
   const missing = params.filter((p) => !actual.includes(p));
   check(`${name}(${params.length} params) matches the app's call`,

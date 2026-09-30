@@ -336,3 +336,100 @@ because nothing read them back; it does now, or the demo APK would contradict
 the live one.
 
 Migration `0018_production_batch_link.sql`.
+
+---
+
+## A38. Payroll is a salary, less what was taken — RESOLVED
+
+The factory described how they actually pay people:
+
+> "Every worker is assigned some salary — say worker A has 1000 for the month.
+> He gets that at the end of the month. If he needs some of it mid-month he
+> asks, we give him 300, and we reduce it from his monthly salary. Just like
+> this."
+
+That is the entire calculation:
+
+```
+net payable = monthly salary − advances taken − deductions entered by hand
+```
+
+What migrations 0012–0014 built was an engine for a different factory: one that
+prorates pay by days present and pays statutory overtime at twice the derived
+hourly rate. Neither rule is used here.
+
+**Decision:** remove them rather than switch them off. A dormant rule is one
+somebody later assumes is running, and five settings that nothing reads are five
+promises the system has stopped keeping.
+
+### What went
+
+| Removed | Why |
+|---|---|
+| `basic_amount`, `gross_amount` | With nothing added and nothing prorated, both were always the monthly salary |
+| `payable_days`, `present_days`, `absent_days`, `calendar_days` | Attendance does not move the figure |
+| `overtime_hours`, `overtime_amount`, `overtime_rate_per_hour` | No overtime is paid |
+| `additions_amount`, and BONUS / INCENTIVE adjustments | Nothing adds to a salary |
+| `salary_structures.overtime_rate_per_hour`, `.standard_hours_per_day` | A salary is a number, not a structure of rates |
+| `payroll_fixed_days`, `payroll_overtime_multiplier`, `payroll_proration_basis`, `payroll_unmarked_day_policy` | Every one of them drove the above |
+
+### What stayed, and why
+
+**Advances**, ledgered exactly as before. This is the part the factory actually
+described, and the part that has to be right: every movement is a row carrying
+the balance before and after it, recovery is capped so a payslip can never come
+out negative, and the remainder carries to the next month.
+
+**One deduction, entered by hand.** This is how a long absence is handled — a
+judgement made case by case, not a figure computed from a register. It is the
+only manual lever left in the calculation.
+
+**Draft and finalise.** Not ceremony: finalising is the single point at which
+the recoveries shown on the payslips actually come off the advance ledger, so
+recalculating a draft — which happens freely — can never take the same money
+twice.
+
+**Attendance.** `punch_in`, `punch_out`, `set_attendance` and the register are
+untouched, and the factory can still see who was in. It simply no longer decides
+pay. The two were coupled and the factory says they are not.
+
+### One thing the module never had
+
+A deduction could be added and never taken back: `staff_adjustments` is
+admin-readable with no write path but `add_staff_adjustment`. Under the old
+engine a mistyped one was merely wrong on a payslip. Under this one a deduction
+larger than the salary stops the month's payroll — the run refuses it by name
+rather than storing a negative payslip — and with no way to remove it the month
+would be stuck.
+
+`remove_staff_adjustment()` closes that: administrators only, refused once the
+month is finalised, and safe because a draft's payslips are rebuilt from scratch
+on every run.
+
+### In the app
+
+Salary was a read-only screen, so no salary could ever be set from the app and
+the payslip list was always going to be empty. It is now the three things an
+administrator does, in the order the work happens:
+
+| Tab | What it does |
+|---|---|
+| **Pay** | Pick a month, calculate it, read the payslips, finalise |
+| **Advances** | Give somebody part of their salary before salary day |
+| **Salaries** | What each person is on; set it or change it |
+
+A raise is still never an edit. The database closes the old period and opens a
+new one, so a payslip already issued keeps the rate it was paid at — and
+`v_staff_pay` reports the salary **in force today**, with a raise dated ahead
+shown separately, so the roster never reads a future figure as this month's pay.
+
+Anybody with no salary set is named on the Salaries tab rather than silently
+left off the payroll.
+
+### History
+
+None to migrate. Every payroll table was empty on the live project when this was
+applied: no payslip, salary structure, advance, adjustment or attendance row
+existed, so the module was rebuilt rather than converted.
+
+Migration `0019_simple_payroll.sql`.

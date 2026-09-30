@@ -537,14 +537,329 @@ class DemoStaffRepository implements StaffRepository {
   }
 
   @override
-  Future<List<Payslip>> payslips() async {
+  Future<List<Payslip>> payslips({DateTime? month}) async {
+    return _latency(() {
+      final rows = month == null
+          ? _store.payslipRows
+          : _store.payslipRows
+              .where((r) => r['period_month'] == _month(month))
+              .toList();
+      return rows.map(Payslip.from).toList(growable: false);
+    });
+  }
+
+  @override
+  Future<List<PayrollPeriod>> payrollPeriods({int limit = 24}) async {
+    return _latency(() => _store.payrollPeriodRows
+        .take(limit)
+        .map(PayrollPeriod.from)
+        .toList(growable: false));
+  }
+
+  @override
+  Future<List<StaffPay>> staffPay() async {
     return _latency(
-        () => _store.payslipRows.map(Payslip.from).toList(growable: false));
+        () => _store.staffPayRows.map(StaffPay.from).toList(growable: false));
+  }
+
+  @override
+  Future<List<StaffDeduction>> deductions(DateTime month) async {
+    return _latency(() => _store.deductionRows
+        .where((r) => r['period_month'] == _month(month))
+        .map(StaffDeduction.from)
+        .toList(growable: false));
   }
 
   @override
   Future<List<StaffAdvance>> advances() async {
     return _latency(
         () => _store.advanceRows.map(StaffAdvance.from).toList(growable: false));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Writes
+  //
+  // These recompute the same way run_payroll does, so the demo shows the real
+  // arithmetic rather than a plausible-looking number (A38).
+  // ---------------------------------------------------------------------------
+
+  @override
+  Future<Map<String, dynamic>> setSalary({
+    required String profileId,
+    required double monthlySalary,
+    DateTime? effectiveFrom,
+    String? remarks,
+  }) async {
+    return _latency(() {
+      final from = effectiveFrom ?? DateTime.now();
+      final row = _store.staffPayRows
+          .firstWhere((r) => r['profile_id'] == profileId, orElse: () => {});
+      if (row.isEmpty) {
+        throw const AppException(
+          kind: AppErrorKind.validation,
+          message: 'That staff member does not exist or is inactive.',
+        );
+      }
+
+      // A raise dated ahead of today is what they will be on, not what they
+      // are on — the same split the view makes.
+      if (from.isAfter(DateTime.now())) {
+        row['upcoming_salary'] = monthlySalary;
+        row['upcoming_from'] = Fmt.isoDate(from);
+      } else {
+        row['monthly_salary'] = monthlySalary;
+        row['effective_from'] = Fmt.isoDate(from);
+        row['upcoming_salary'] = null;
+        row['upcoming_from'] = null;
+      }
+
+      return {'id': _store.nextId('sal'), 'profile_id': profileId};
+    });
+  }
+
+  @override
+  Future<Map<String, dynamic>> issueAdvance({
+    required String profileId,
+    required double amount,
+    required String clientRef,
+    DateTime? entryDate,
+    String? remarks,
+  }) async {
+    return _latency(() {
+      if (amount <= 0) {
+        throw const AppException(
+          kind: AppErrorKind.validation,
+          message: 'The amount must be greater than zero.',
+        );
+      }
+
+      final pay = _store.staffPayRows
+          .firstWhere((r) => r['profile_id'] == profileId, orElse: () => {});
+
+      final existing = _store.advanceRows
+          .firstWhere((r) => r['profile_id'] == profileId, orElse: () => {});
+
+      if (existing.isEmpty) {
+        _store.advanceRows.add({
+          'profile_id': profileId,
+          'staff_name': pay['staff_name'] ?? '—',
+          'employee_code': pay['employee_code'] ?? '',
+          'total_issued': amount,
+          'total_recovered': 0.0,
+          'outstanding': amount,
+          'updated_at': DateTime.now().toIso8601String(),
+        });
+      } else {
+        existing['total_issued'] =
+            (existing['total_issued'] as double) + amount;
+        existing['outstanding'] = (existing['outstanding'] as double) + amount;
+      }
+
+      if (pay.isNotEmpty) {
+        pay['outstanding_advance'] =
+            (pay['outstanding_advance'] as double) + amount;
+      }
+
+      return {'duplicate': false, 'outstanding': pay['outstanding_advance']};
+    });
+  }
+
+  @override
+  Future<Map<String, dynamic>> addDeduction({
+    required String profileId,
+    required DateTime periodMonth,
+    required String label,
+    required double amount,
+    required String clientRef,
+    String? remarks,
+  }) async {
+    return _latency(() {
+      _requireDraft(periodMonth);
+
+      final pay = _store.staffPayRows
+          .firstWhere((r) => r['profile_id'] == profileId, orElse: () => {});
+      final id = _store.nextId('ded');
+
+      _store.deductionRows.add({
+        'id': id,
+        'profile_id': profileId,
+        'employee_code': pay['employee_code'] ?? '',
+        'staff_name': pay['staff_name'] ?? '—',
+        'period_month': _month(periodMonth),
+        'label': label,
+        'amount': amount,
+        'remarks': remarks,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+
+      return {'id': id, 'duplicate': false};
+    });
+  }
+
+  @override
+  Future<Map<String, dynamic>> removeDeduction(String id) async {
+    return _latency(() {
+      final row = _store.deductionRows
+          .firstWhere((r) => r['id'] == id, orElse: () => {});
+      if (row.isEmpty) return {'id': id, 'removed': false};
+
+      _requireDraft(DateTime.parse(row['period_month'] as String));
+      _store.deductionRows.removeWhere((r) => r['id'] == id);
+      return {'id': id, 'removed': true};
+    });
+  }
+
+  @override
+  Future<Map<String, dynamic>> runPayroll(DateTime month,
+      {String? remarks}) async {
+    return _latency(() {
+      final iso = _month(month);
+      _requireDraft(month);
+
+      _store.payslipRows.removeWhere((r) => r['period_month'] == iso);
+
+      var count = 0;
+      var net = 0.0, salaries = 0.0, deducted = 0.0, recovered = 0.0;
+
+      for (final person in _store.staffPayRows) {
+        final salary = person['monthly_salary'] as double?;
+        if (salary == null) continue;
+
+        final deductions = _store.deductionRows
+            .where((d) =>
+                d['profile_id'] == person['profile_id'] &&
+                d['period_month'] == iso)
+            .fold<double>(0, (sum, d) => sum + (d['amount'] as double));
+
+        if (deductions > salary) {
+          throw AppException(
+            kind: AppErrorKind.validation,
+            message: 'Deductions for ${person['staff_name']} '
+                '(${person['employee_code']}) come to '
+                '${Fmt.money(deductions)}, more than the monthly salary of '
+                '${Fmt.money(salary)}. Reduce them before calculating the '
+                'payroll.',
+          );
+        }
+
+        final outstanding = person['outstanding_advance'] as double;
+        final recovery =
+            outstanding < salary - deductions ? outstanding : salary - deductions;
+        final payable = salary - deductions - recovery;
+
+        _store.payslipRows.add({
+          'id': _store.nextId('pay'),
+          'profile_id': person['profile_id'],
+          'staff_name': person['staff_name'],
+          'employee_code': person['employee_code'],
+          'role': person['role'],
+          'period_month': iso,
+          'period_status': 'DRAFT',
+          'monthly_salary': salary,
+          'deductions_amount': deductions,
+          'advance_recovered': recovery,
+          'net_payable': payable,
+          'created_at': DateTime.now().toIso8601String(),
+        });
+
+        count++;
+        salaries += salary;
+        deducted += deductions;
+        recovered += recovery;
+        net += payable;
+      }
+
+      final period = _store.payrollPeriodRows
+          .firstWhere((r) => r['period_month'] == iso, orElse: () => {});
+      final summary = {
+        'payroll_period_id':
+            period['payroll_period_id'] ?? _store.nextId('period'),
+        'period_month': iso,
+        'status': 'DRAFT',
+        'payslip_count': count,
+        'salary_total': salaries,
+        'deductions_total': deducted,
+        'advance_recovered_total': recovered,
+        'net_total': net,
+        'finalised_at': null,
+      };
+
+      if (period.isEmpty) {
+        _store.payrollPeriodRows.insert(0, summary);
+      } else {
+        period.addAll(summary);
+      }
+
+      return {'payslips': count, 'net_total': net, 'status': 'DRAFT'};
+    });
+  }
+
+  @override
+  Future<Map<String, dynamic>> finalisePayroll(DateTime month) async {
+    return _latency(() {
+      final iso = _month(month);
+      final period = _store.payrollPeriodRows
+          .firstWhere((r) => r['period_month'] == iso, orElse: () => {});
+
+      if (period.isEmpty) {
+        throw const AppException(
+          kind: AppErrorKind.validation,
+          message: 'Payroll has not been calculated for that month yet.',
+        );
+      }
+      if (period['status'] != 'DRAFT') {
+        return {'duplicate': true, 'status': period['status']};
+      }
+
+      // The point at which the advances actually come off the ledger.
+      var posted = 0;
+      for (final slip
+          in _store.payslipRows.where((r) => r['period_month'] == iso)) {
+        final recovered = slip['advance_recovered'] as double;
+        slip['period_status'] = 'FINALISED';
+        if (recovered <= 0) continue;
+
+        final pay = _store.staffPayRows.firstWhere(
+            (r) => r['profile_id'] == slip['profile_id'],
+            orElse: () => {});
+        if (pay.isNotEmpty) {
+          pay['outstanding_advance'] =
+              (pay['outstanding_advance'] as double) - recovered;
+        }
+
+        final ledger = _store.advanceRows.firstWhere(
+            (r) => r['profile_id'] == slip['profile_id'],
+            orElse: () => {});
+        if (ledger.isNotEmpty) {
+          ledger['total_recovered'] =
+              (ledger['total_recovered'] as double) + recovered;
+          ledger['outstanding'] =
+              (ledger['outstanding'] as double) - recovered;
+        }
+        posted++;
+      }
+
+      period['status'] = 'FINALISED';
+      period['finalised_at'] = DateTime.now().toIso8601String();
+
+      return {'duplicate': false, 'status': 'FINALISED',
+              'recoveries_posted': posted};
+    });
+  }
+
+  String _month(DateTime value) =>
+      Fmt.isoDate(DateTime(value.year, value.month, 1));
+
+  /// A finalised month is closed to every kind of change, here as in the
+  /// database.
+  void _requireDraft(DateTime month) {
+    final period = _store.payrollPeriodRows
+        .firstWhere((r) => r['period_month'] == _month(month), orElse: () => {});
+    if (period.isNotEmpty && period['status'] != 'DRAFT') {
+      throw AppException(
+        kind: AppErrorKind.conflict,
+        message: 'Payroll for ${Fmt.monthYear(month)} is already finalised.',
+      );
+    }
   }
 }

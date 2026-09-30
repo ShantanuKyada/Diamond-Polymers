@@ -45,12 +45,9 @@ const num = (v) => v === null || v === undefined ? null : Number(v);
 const RAVI = (await one(`select id from profiles where employee_code='EMP-101'`)).id;
 const SURESH = (await one(`select id from profiles where employee_code='EMP-102'`)).id;
 
-// June 2026: a completed month with 30 days, so the arithmetic is easy to check
-// by hand and nothing collides with today's date.
+// June 2026: a completed month, chosen so nothing collides with today's date.
 const MONTH = '2026-06-01';
-const DAYS = 30;
-const SALARY = 26000;          // /26/8*2 gives a round 250/h of overtime
-const OT_RATE = 250;
+const SALARY = 26000;
 
 // =============================================================================
 section('Salary structure — effective dated, never overwritten');
@@ -180,57 +177,138 @@ await asUser(db, RAVI_AUTH, async () => {
 });
 
 // =============================================================================
-section('Payroll — the arithmetic');
+section('Payroll — salary, less what was taken');
 
 await asUser(db, ADMIN_AUTH, async () => {
-  await db.query(`select public.add_staff_adjustment($1,$2,'BONUS','Festival bonus',$3,$4)`,
-    [RAVI, MONTH, 500, randomUUID()]);
+  const bonus = await sqlstate(() => db.query(
+    `select public.add_staff_adjustment($1,$2,'BONUS','Festival bonus',$3,$4)`,
+    [RAVI, MONTH, 500, randomUUID()]));
+  check('nothing can be added to a salary any more', bonus === 'DP005', `got ${bonus}`);
+
   await db.query(`select public.add_staff_adjustment($1,$2,'DEDUCTION','Canteen',$3,$4)`,
     [RAVI, MONTH, 200, randomUUID()]);
 
   const r = await one(`select public.run_payroll($1) as j`, [MONTH]);
   check('payroll runs and produces a payslip per person with a salary',
-    num(r.j.payslips) === 2 && num(r.j.calendar_days) === DAYS, JSON.stringify(r.j));
+    num(r.j.payslips) === 2, JSON.stringify(r.j));
 });
 
 const slip = await one(
   `select * from v_payslips where profile_id=$1 and period_month=$2`, [RAVI, MONTH]);
 
-// 3 absent days out of 30, unmarked days paid: 27 payable.
-check('absences prorate the basic pay',
-  num(slip.payable_days) === 27 && num(slip.basic_amount) === 23400,
-  `${slip.payable_days} days -> ${slip.basic_amount}`);
+// Ravi was marked absent for three days of June and worked four hours of
+// overtime. Under the old engine that made his basic 23400 and added 1000 of
+// overtime. Neither moves the figure now: the month's salary is the month's
+// salary (A38).
+check('a month pays the monthly salary, whatever the attendance says',
+  num(slip.monthly_salary) === SALARY, `${slip.monthly_salary}`);
 
-check('overtime is paid at the derived statutory rate',
-  num(slip.overtime_rate_per_hour) === OT_RATE && num(slip.overtime_hours) === 4
-  && num(slip.overtime_amount) === 1000,
-  JSON.stringify({ r: slip.overtime_rate_per_hour, h: slip.overtime_hours, a: slip.overtime_amount }));
+check('a deduction entered by hand subtracts',
+  num(slip.deductions_amount) === 200, `${slip.deductions_amount}`);
 
-check('a bonus adds and a deduction subtracts',
-  num(slip.additions_amount) === 500 && num(slip.deductions_amount) === 200);
-
-// gross 23400 + 1000 + 500 = 24900; recovery capped at 24900-200 = 24700, so all 5000
-check('gross is basic plus overtime plus additions',
-  num(slip.gross_amount) === 24900, `${slip.gross_amount}`);
 check('the outstanding advance is recovered',
   num(slip.advance_recovered) === 5000, `${slip.advance_recovered}`);
-check('net is gross less deductions and recovery',
-  num(slip.net_payable) === 19700, `${slip.net_payable}`);
+
+check('net is the salary less the deduction and the advance',
+  num(slip.net_payable) === SALARY - 200 - 5000, `${slip.net_payable}`);
+
+// The columns the old engine needed are gone, not merely unused. A later
+// migration that wants proration back has to add them deliberately.
+const gone = await all(
+  `select column_name from information_schema.columns
+   where table_schema='public' and table_name='payslips'
+     and column_name in ('basic_amount','gross_amount','overtime_amount',
+                         'additions_amount','payable_days','present_days',
+                         'absent_days','calendar_days','overtime_hours',
+                         'overtime_rate_per_hour')`);
+check('the proration and overtime columns are gone from payslips', gone.length === 0,
+  JSON.stringify(gone.map(r => r.column_name)));
+
+const settingsGone = await all(
+  `select key from app_settings where key in
+    ('payroll_fixed_days','payroll_overtime_multiplier',
+     'payroll_proration_basis','payroll_unmarked_day_policy')`);
+check('and the settings that drove them are gone too', settingsGone.length === 0,
+  JSON.stringify(settingsGone.map(r => r.key)));
 
 const comps = await all(
   `select component_type, amount from payslip_components where payslip_id=$1 order by sort_order`,
   [slip.id]);
 const compSum = comps.reduce((a, c) => a + num(c.amount), 0);
-check('the itemised lines add up to net pay', Math.abs(compSum - 19700) < 0.01,
+check('the itemised lines add up to net pay',
+  Math.abs(compSum - (SALARY - 200 - 5000)) < 0.01,
   `${compSum} from ${JSON.stringify(comps.map(c => [c.component_type, c.amount]))}`);
 
-// Somebody with no attendance marked at all is paid in full under the PAYABLE
-// policy — the documented assumption, asserted so a change to it is deliberate.
+// Suresh has no attendance marked at all for June. He is paid in full, which is
+// now the ordinary case rather than a policy setting.
 const sureshSlip = await one(
   `select * from v_payslips where profile_id=$1 and period_month=$2`, [SURESH, MONTH]);
-check('an unmarked month pays the full salary (payroll_unmarked_day_policy)',
-  num(sureshSlip.payable_days) === DAYS && num(sureshSlip.net_payable) === 21000,
-  JSON.stringify({ d: sureshSlip.payable_days, n: sureshSlip.net_payable }));
+check('somebody with no attendance marked is paid in full',
+  num(sureshSlip.net_payable) === 21000, `${sureshSlip.net_payable}`);
+
+// A deduction bigger than the salary is somebody's slip of the keyboard. It has
+// to be a sentence naming the person, not a constraint violation.
+await asUser(db, ADMIN_AUTH, async () => {
+  const ref = randomUUID();
+  const typo = await one(
+    `select public.add_staff_adjustment($1,$2,'DEDUCTION','Typo',$3,$4) as j`,
+    [SURESH, MONTH, 99000, ref]);
+  const over = await sqlstate(() => db.query(`select public.run_payroll($1)`, [MONTH]));
+  check('deductions larger than the salary are refused by name', over === 'DP005', `got ${over}`);
+
+  // And can be taken back, which is the whole reason removal exists: a mistyped
+  // deduction otherwise stops the month's payroll and nothing can clear it.
+  const undo = await one(`select public.remove_staff_adjustment($1) as j`, [typo.j.id]);
+  check('a mistyped deduction can be taken back', undo.j.removed === true,
+    JSON.stringify(undo.j));
+
+  const twice = await one(`select public.remove_staff_adjustment($1) as j`, [typo.j.id]);
+  check('removing it twice is not an error', twice.j.removed === false,
+    JSON.stringify(twice.j));
+
+  await db.query(`select public.run_payroll($1)`, [MONTH]);
+});
+
+await asUser(db, RAVI_AUTH, async () => {
+  const s = await sqlstate(() => db.query(`select public.remove_staff_adjustment($1)`,
+    [randomUUID()]));
+  check('an operator cannot remove a deduction', s === 'DP004', `got ${s}`);
+});
+
+// =============================================================================
+section('The two numbers the factory works from');
+
+await asUser(db, ADMIN_AUTH, async () => {
+  const pay = await all(`select * from v_staff_pay order by employee_code`);
+  const ravi = pay.find(r => r.profile_id === RAVI);
+  const suresh = pay.find(r => r.profile_id === SURESH);
+  check('v_staff_pay lists everyone with their salary and what they have drawn',
+    pay.length >= 2 && num(suresh.monthly_salary) === 21000
+    && num(ravi.outstanding_advance) === 5000,
+    JSON.stringify({ suresh, ravi }));
+
+  // A raise dated ahead of today is not what somebody is on today. Dated far
+  // enough out that the assertion does not depend on when the suite is run.
+  await db.query(`select public.set_salary_structure($1,$2,$3)`, [SURESH, 25000, '2099-01-01']);
+  const later = (await all(`select * from v_staff_pay where profile_id=$1`, [SURESH]))[0];
+  check('a raise dated ahead is reported apart from the current salary',
+    num(later.monthly_salary) === 21000 && num(later.upcoming_salary) === 25000,
+    JSON.stringify(later));
+
+  const ded = await all(`select * from v_staff_deductions where period_month=$1`, [MONTH]);
+  check('v_staff_deductions shows the deductions waiting on a payslip',
+    ded.length === 1 && ded[0].label === 'Canteen' && num(ded[0].amount) === 200,
+    JSON.stringify(ded));
+});
+
+await asUser(db, RAVI_AUTH, async () => {
+  const pay = await all(`select * from v_staff_pay`);
+  check('a worker sees their own pay row and nobody else\'s',
+    pay.length === 1 && pay[0].profile_id === RAVI, `${pay.length} rows`);
+
+  const ded = await all(`select * from v_staff_deductions`);
+  check('and cannot see the deductions ledger', ded.length === 0, `${ded.length} rows`);
+});
 
 // =============================================================================
 section('Payroll — recalculating a draft must not recover twice');
@@ -284,9 +362,16 @@ await asUser(db, ADMIN_AUTH, async () => {
   check('a finalised month cannot be recalculated', recalc === 'DP011', `got ${recalc}`);
 
   const late = await sqlstate(() => db.query(
-    `select public.add_staff_adjustment($1,$2,'BONUS','Late',$3,$4)`,
+    `select public.add_staff_adjustment($1,$2,'DEDUCTION','Late',$3,$4)`,
     [RAVI, MONTH, 100, randomUUID()]));
-  check('and cannot take new adjustments', late === 'DP011', `got ${late}`);
+  check('and cannot take new deductions', late === 'DP011', `got ${late}`);
+
+  const canteen = await one(
+    `select id from staff_adjustments where profile_id=$1 and period_month=$2`, [RAVI, MONTH]);
+  const lateRemove = await sqlstate(() => db.query(
+    `select public.remove_staff_adjustment($1)`, [canteen.id]));
+  check('nor can an existing one be taken back once paid', lateRemove === 'DP011',
+    `got ${lateRemove}`);
 });
 
 const stillZero = num((await one(
@@ -297,22 +382,22 @@ check('the second finalise moved no money', stillZero === 0, `${stillZero}`);
 section('Payroll — advance recovery cannot push pay negative');
 
 await asUser(db, ADMIN_AUTH, async () => {
-  // An advance far larger than a month's pay.
+  // Somebody who has drawn far more than a month's pay.
   await db.query(`select public.issue_salary_advance($1,$2,$3)`, [SURESH, 100000, randomUUID()]);
   await db.query(`select public.run_payroll($1)`, ['2026-07-01']);
 });
 
 const big = await one(
   `select * from v_payslips where profile_id=$1 and period_month='2026-07-01'`, [SURESH]);
-check('recovery is capped at what is actually payable',
-  num(big.net_payable) === 0 && num(big.advance_recovered) === num(big.gross_amount),
-  JSON.stringify({ net: big.net_payable, rec: big.advance_recovered, gross: big.gross_amount }));
+check('recovery is capped at a month\'s salary',
+  num(big.net_payable) === 0 && num(big.advance_recovered) === num(big.monthly_salary),
+  JSON.stringify({ net: big.net_payable, rec: big.advance_recovered, sal: big.monthly_salary }));
 
 await asUser(db, ADMIN_AUTH, () => db.query(`select public.finalise_payroll($1)`, ['2026-07-01']));
 const carried = num((await one(
   `select outstanding from staff_advance_balance where profile_id=$1`, [SURESH])).outstanding);
-check('the rest of the advance carries forward', carried === 100000 - num(big.gross_amount),
-  `${carried}`);
+check('the rest of the advance carries forward to next month',
+  carried === 100000 - num(big.monthly_salary), `${carried}`);
 
 // =============================================================================
 section('Privacy — pay is nobody else\'s business');
@@ -375,13 +460,19 @@ section('Payroll summary');
 
 await asUser(db, ADMIN_AUTH, async () => {
   const s = await one(`select * from v_payroll_summary where period_month=$1`, [MONTH]);
-  check('the summary totals the month', num(s.payslip_count) === 2
-    && num(s.net_total) === 19700 + 21000 && s.status === 'FINALISED',
+  check('the summary totals the month',
+    num(s.payslip_count) === 2
+    && num(s.salary_total) === SALARY + 21000
+    && num(s.deductions_total) === 200
+    && num(s.net_total) === (SALARY - 200 - 5000) + 21000
+    && s.status === 'FINALISED',
     JSON.stringify(s));
 
+  // Attendance is still recorded and still rolls up. It simply no longer
+  // decides what anybody is paid.
   const att = await one(
     `select * from v_monthly_attendance where profile_id=$1 and period_month=$2`, [RAVI, MONTH]);
-  check('monthly attendance rolls up per person',
+  check('attendance is still kept, it just no longer pays',
     num(att.absent_days) === 3 && num(att.overtime_hours) === 4, JSON.stringify(att));
 });
 
