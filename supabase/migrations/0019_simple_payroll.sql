@@ -29,7 +29,7 @@
 --     and the part that has to be right.
 --   * a deduction entered by hand for one worker in one month — how a long
 --     absence is handled: judged case by case rather than computed from a
---     register.
+--     register. Asked and confirmed, not assumed; see A38.
 --   * draft / finalise, because advance recovery must post once and only once.
 --
 -- ATTENDANCE IS NOT DELETED. punch_in, punch_out and set_attendance stay, and

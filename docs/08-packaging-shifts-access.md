@@ -362,6 +362,24 @@ hourly rate. Neither rule is used here.
 somebody later assumes is running, and five settings that nothing reads are five
 promises the system has stopped keeping.
 
+### The one thing that had to be asked
+
+The description above says what happens to somebody who takes money early. It
+does not say what happens to somebody who is away for three weeks — and the
+answer decides whether attendance can be cut loose from pay at all.
+
+Two readings were possible: absence still reduces pay automatically, or it is
+judged case by case. They were put as exactly that, and the factory confirmed
+(1 October 2026) the second:
+
+> **No automatic proration.** A long absence is handled by entering a one-off
+> deduction for that month, by hand. That is the only manual lever; overtime,
+> bonus schemes and attendance-based proration all go.
+
+This is recorded because it is not recoverable from the code. A future reader
+finding that `attendance_days` exists, is populated, and is ignored by
+`run_payroll()` would reasonably suspect a bug. It is not one.
+
 ### What went
 
 | Removed | Why |
