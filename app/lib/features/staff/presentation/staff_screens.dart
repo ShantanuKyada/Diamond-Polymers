@@ -936,17 +936,28 @@ class _SalarySheet extends ConsumerStatefulWidget {
 
 class _SalarySheetState extends ConsumerState<_SalarySheet> {
   final _amount = TextEditingController();
-  DateTime _from = DateTime.now();
+  late DateTime _from;
   bool _busy = false;
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    // A change starts the day after the open period began, at the earliest.
+
+    // Dates only. The salary on file is a date at midnight and DateTime.now()
+    // is not, so comparing the two directly would read "today is after today"
+    // and offer a start date the database refuses.
+    final now = DateTime.now();
+    _from = DateTime(now.year, now.month, now.day);
+
+    // A change has to start after the period already open, so the earliest it
+    // can begin is the day after that one did.
     final open = widget.person.upcomingFrom ?? widget.person.effectiveFrom;
-    if (open != null && !open.isBefore(_from)) {
-      _from = open.add(const Duration(days: 1));
+    if (open != null) {
+      final openDay = DateTime(open.year, open.month, open.day);
+      if (!openDay.isBefore(_from)) {
+        _from = openDay.add(const Duration(days: 1));
+      }
     }
   }
 
