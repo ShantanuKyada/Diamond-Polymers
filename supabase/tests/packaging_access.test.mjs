@@ -5,7 +5,7 @@
 // Morning and Night, several operators, admin against operator — plus the path
 // a live database takes: yesterday's schema with an Afternoon shift in it,
 // upgraded in place.
-import { build, asUser, applyMigration, chargeBatch } from './harness.mjs';
+import { build, asUser, applyMigration, chargeBatch, factoryToday } from './harness.mjs';
 import { randomUUID } from 'node:crypto';
 
 process.on('unhandledRejection', (e) => {
@@ -227,10 +227,13 @@ check('recording wastage used moves no recycled stock (A28)',
   num(regrind.q) === num(regrindAfter.q));
 
 await asUser(db, ADMIN, async () => {
-  // The database's own date: the report works in factory-local days.
+  // The factory's date, not this machine's: a report works in factory-local
+  // days, and a runner on UTC is a day behind for five and a half hours of
+  // every one of them. See factoryToday() in the harness.
+  const today = await factoryToday(db);
   const rows = (await db.query(
     `select coalesce(sum(wastage_used_kg),0) as used, coalesce(sum(bags),0) as bags
-     from public.production_report(current_date, current_date)`)).rows[0];
+     from public.production_report($1::date, $1::date)`, [today])).rows[0];
   check('the production report carries wastage used and bags',
     num(rows.used) >= 6.5 && num(rows.bags) >= 10, JSON.stringify(rows));
 });
@@ -364,16 +367,18 @@ check('every bundle and bag balance agrees with its ledger', bad.rows.length ===
   JSON.stringify(bad.rows));
 
 await asUser(db, ADMIN, async () => {
-  const rep = await one(
-    `select closing_bundles from public.finished_goods_report(current_date, current_date)
-     where sku = 'TA-S1'`).catch(() => null);
+  const today = await factoryToday(db);
+  const rep = (await db.query(
+    `select closing_bundles from public.finished_goods_report($1::date, $1::date)
+     where sku = 'TA-S1'`, [today])).rows[0] ?? null;
   const live = await stock(TA, S1);
   if (rep) {
     check('the bundle report ignores bag movements', num(rep.closing_bundles) === live.bundles,
       `${rep.closing_bundles} vs ${live.bundles}`);
   } else {
     const cols = (await db.query(
-      `select * from public.finished_goods_report(current_date, current_date) limit 1`)).fields.map((f) => f.name);
+      `select * from public.finished_goods_report($1::date, $1::date) limit 1`,
+      [today])).fields.map((f) => f.name);
     check('the bundle report ignores bag movements', false, `columns: ${cols}`);
   }
 });

@@ -55,6 +55,22 @@ function patch(sql) {
 // next migration with applyMigration() - the path a live database takes.
 export async function build({ seed = true, quiet = false, upto = null } = {}) {
   const db = await PGlite.create();
+
+  // Run on the factory's clock, not the runner's.
+  //
+  // PGlite takes its session timezone from the host machine, so `current_date`
+  // means something different on a laptop in Gujarat and on a GitHub runner in
+  // UTC. Every RPC here that is called without an explicit date falls back to
+  // `default current_date`, while the reports bucket by the factory timezone —
+  // and for the five and a half hours between 18:30 and 24:00 UTC those are two
+  // different days. A suite that passed all afternoon then failed at night.
+  //
+  // The app never has this problem: all nine of its write calls send a date
+  // taken from the device, which in the factory is IST. Pinning the session
+  // here makes the harness behave the way the app does instead of the way the
+  // runner happens to be configured.
+  await db.exec(`set timezone = 'Asia/Kolkata';`);
+
   await db.exec(PRELUDE);
 
   const files = [
@@ -134,6 +150,29 @@ export async function chargeBatch(db, { machineId, shiftId, materialId, quantity
       JSON.stringify([{ raw_material_id: materialId, quantity }]),
       crypto.randomUUID()]);
   return r.rows[0].j.id;
+}
+
+// The factory's today, which is not always the session's today.
+//
+// Reports bucket movements by the factory timezone — app.report_window() turns
+// a pair of dates into a tstzrange in Asia/Kolkata — while `current_date` is
+// whatever the *session's* timezone says. Between 18:30 and 24:00 UTC those are
+// different days, so a test running on a UTC machine that asks for
+// `current_date` gets a window which closed hours ago and sees none of the
+// movements it just made.
+//
+// That is not a bug in the report. The factory's day is an IST day, and the
+// report is right to say so. It is a bug in any test that assumes the machine
+// it runs on keeps factory time. Pass this to a report instead.
+// Reads app_settings directly rather than through app.setting(): that helper is
+// never granted to `authenticated`, because only SECURITY DEFINER functions
+// call it, and this is often wanted from inside an asUser() block.
+export async function factoryToday(db) {
+  const { rows } = await db.query(
+    `select to_char((now() at time zone coalesce(
+       (select value from public.app_settings where key = 'factory_timezone'),
+       'Asia/Kolkata'))::date, 'YYYY-MM-DD') as d`);
+  return rows[0].d;
 }
 
 // Run as the given profile's login, the way PostgREST would.
