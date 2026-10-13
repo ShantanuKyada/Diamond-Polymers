@@ -109,6 +109,11 @@ class StatusChip extends StatelessWidget {
         'UNMARKED' => (AppTheme.neutral, 'Not marked'),
         'DRAFT' => (AppTheme.low, 'Draft'),
         'FINALISED' || 'FINALIZED' => (AppTheme.good, 'Finalised'),
+        // Payment status (A39). "Unpaid" is a debt and reads as one; a draft
+        // month is the DRAFT above, because its figures can still change.
+        'UNPAID' => (AppTheme.critical, 'Unpaid'),
+        'PARTIAL' => (AppTheme.low, 'Part paid'),
+        'PAID' => (AppTheme.good, 'Paid'),
         _ => (AppTheme.neutral, status),
       };
 

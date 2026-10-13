@@ -81,9 +81,16 @@ for (const file of repoFiles) {
     // continues on later lines is still seen whole.
     const text = statementFrom(src, m.index);
     const cols = new Set();
+    let projected = false;
 
     for (const s of text.matchAll(/\.select\(\s*'([^']*)'/g)) {
-      s[1].split(',').map((c) => c.trim()).filter(Boolean).forEach((c) => cols.add(c));
+      projected = true;
+      for (const raw of s[1].split(',').map((c) => c.trim()).filter(Boolean)) {
+        // PostgREST renames with `alias:source`. The database has to have the
+        // source; the alias is what the Dart model reads.
+        const [, source] = raw.includes(':') ? raw.split(':', 2) : [null, raw];
+        cols.add(source.trim());
+      }
     }
     for (const f of text.matchAll(/\.(?:eq|neq|gte|lte|gt|lt|order|inFilter|isFilter)\(\s*'([a-z_0-9]+)'/g)) {
       cols.add(f[1]);
@@ -94,7 +101,15 @@ for (const file of repoFiles) {
 
     const model = text.match(/map\((\w+)\.from\)/) ?? text.match(/(\w+)\.from(?:Rows)?\(rows\)/);
     const modelName = model?.[1];
-    if (modelName && modelKeys.has(modelName)) {
+
+    // The model's keys are the contract only when the query asks for
+    // everything. Where it names its columns, that list is the contract — the
+    // model may well read keys this relation does not have, because one model
+    // can be built from more than one shape of row (a view that renames, or a
+    // demo store that does not). Every `from` factory defaults a missing key,
+    // so reading one that is absent is by design rather than a bug, and
+    // insisting otherwise would make an explicit projection impossible to use.
+    if (!projected && modelName && modelKeys.has(modelName)) {
       modelKeys.get(modelName).forEach((k) => cols.add(k));
     }
 
@@ -107,9 +122,21 @@ for (const file of repoFiles) {
     const end = block.indexOf('final rows');
     const scope = end > 0 ? block.slice(0, end + 400) : block;
     const cols = new Set();
+    let projected = false;
+    for (const s of scope.matchAll(/\.select\(\s*'([^']*)'/g)) {
+      projected = true;
+      for (const raw of s[1].split(',').map((c) => c.trim()).filter(Boolean)) {
+        const [, source] = raw.includes(':') ? raw.split(':', 2) : [null, raw];
+        cols.add(source.trim());
+      }
+    }
     for (const f of scope.matchAll(/\.(?:eq|neq|gte|lte|gt|lt|order)\(\s*'([a-z_0-9]+)'/g)) cols.add(f[1]);
     const model = scope.match(/map\((\w+)\.from\)/)?.[1];
-    if (model && modelKeys.has(model)) modelKeys.get(model).forEach((k) => cols.add(k));
+    // Same rule as above: an explicit projection is the contract, not the
+    // model's keys.
+    if (!projected && model && modelKeys.has(model)) {
+      modelKeys.get(model).forEach((k) => cols.add(k));
+    }
     relationCalls.push({ relation: m[1], cols: [...cols], model, where: `${relative(join(APP_LIB, '..'), repoFiles.find((f) => readFileSync(f, 'utf8') === src)).replaceAll('\\', '/')} (query chain)` });
   }
 }

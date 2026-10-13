@@ -9,6 +9,7 @@ import '../../../core/widgets/panels.dart';
 import '../../../core/widgets/state_views.dart';
 import '../../masters/data/settings_values.dart';
 import '../data/staff_repository.dart';
+import 'salary_slip_action.dart';
 
 /// Punches — who is on site today, and the month behind it (§33).
 class PunchesScreen extends ConsumerWidget {
@@ -444,7 +445,10 @@ class _PayslipList extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final symbol = ref.watch(currencySymbolProvider);
-    final finalised = period != null && !period!.isDraft;
+    // Bound to a local: a null check promotes a local, never a field, and the
+    // tiles below read several of its figures.
+    final summary = period;
+    final finalised = summary != null && !summary.isDraft;
 
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -464,21 +468,56 @@ class _PayslipList extends ConsumerWidget {
               Expanded(
                 child: StatTile(
                   label: 'Net payable',
-                  value: Fmt.money(period?.netTotal ?? 0, symbol: symbol),
+                  value: Fmt.money(summary?.netTotal ?? 0, symbol: symbol),
                   icon: Icons.account_balance_wallet_outlined,
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: StatTile(
-                  label: finalised ? 'Finalised' : 'Draft',
-                  value: Fmt.count(rows.length),
-                  icon: Icons.description_outlined,
-                  tone: finalised ? AppTheme.good : null,
-                ),
+                // Before the month is agreed there is nothing paid to report,
+                // so the second tile says what state the month is in instead.
+                child: finalised
+                    ? StatTile(
+                        label: 'Still to pay',
+                        value: Fmt.money(summary.outstandingTotal,
+                            symbol: symbol),
+                        icon: Icons.schedule_outlined,
+                        tone: (summary.outstandingTotal) > 0
+                            ? AppTheme.low
+                            : AppTheme.good,
+                      )
+                    : StatTile(
+                        label: 'Draft',
+                        value: Fmt.count(rows.length),
+                        icon: Icons.description_outlined,
+                      ),
               ),
             ],
           ),
+          if (finalised) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: StatTile(
+                    label: 'Paid',
+                    value: Fmt.money(summary.paidTotal, symbol: symbol),
+                    icon: Icons.check_circle_outline,
+                    tone: AppTheme.good,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: StatTile(
+                    label: 'Workers settled',
+                    value: '${summary.paidCount} of ${summary.payslipCount}',
+                    icon: Icons.groups_outlined,
+                    tone: summary.isSettled ? AppTheme.good : null,
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SectionHeader(title: 'Payslips'),
           for (final slip in rows) ...[
             _PayslipCard(slip: slip, month: month, editable: !finalised),
@@ -518,11 +557,20 @@ class _PayActionsState extends ConsumerState<_PayActions> {
     final finalised = widget.period != null && !widget.period!.isDraft;
 
     if (finalised) {
+      final left = widget.period?.outstandingTotal ?? 0;
+      final owed = (widget.period?.unpaidCount ?? 0) +
+          (widget.period?.partialCount ?? 0);
+
       return InlineBanner(
-        message: '${Fmt.monthYear(widget.month)} is finalised. The advances '
-            'shown have come off the ledger.',
-        icon: Icons.lock_outline,
-        color: AppTheme.good,
+        message: left <= 0
+            ? '${Fmt.monthYear(widget.month)} is finalised and everybody has '
+                'been paid.'
+            : '${Fmt.monthYear(widget.month)} is finalised. '
+                '${Fmt.money(left, symbol: ref.read(currencySymbolProvider))} '
+                'still to pay across $owed '
+                '${owed == 1 ? 'worker' : 'workers'} — use Pay on each payslip.',
+        icon: left <= 0 ? Icons.check_circle_outline : Icons.schedule_outlined,
+        color: left <= 0 ? AppTheme.good : AppTheme.low,
       );
     }
 
@@ -673,7 +721,11 @@ class _PayslipCard extends ConsumerWidget {
                     ],
                   ),
                 ),
-                StatusChip(status: slip.periodStatus),
+                // The payment status, not the period's. It is the more useful
+                // of the two and subsumes it: a draft payslip reads DRAFT
+                // either way, and once the month is closed what matters is
+                // whether this person has been paid.
+                StatusChip(status: slip.status.wire),
               ],
             ),
             const Divider(height: 22),
@@ -684,27 +736,384 @@ class _PayslipCard extends ConsumerWidget {
               _Money(label: 'Advance taken', value: -slip.advanceRecovered),
             const Divider(height: 20),
             _Money(label: 'Net payable', value: slip.netPayable, bold: true),
-            if (editable) ...[
-              const SizedBox(height: 4),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  onPressed: () => showDeductionSheet(
-                    context,
-                    ref,
-                    profileId: slip.profileId,
-                    staffName: slip.staffName,
-                    month: month,
-                  ),
-                  icon: const Icon(Icons.remove_circle_outline, size: 18),
-                  label: const Text('Deduct'),
-                ),
+            // Only once the month is agreed: a draft has nothing paid against
+            // it, and printing a zero would read as an unpaid debt.
+            if (!slip.isDraft) ...[
+              const SizedBox(height: 2),
+              _Money(label: 'Paid', value: slip.paidAmount),
+              _Money(
+                label: 'Outstanding',
+                value: slip.outstanding,
+                bold: slip.outstanding > 0,
               ),
             ],
+            if (slip.salaryDueOn != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Due ${Fmt.date(slip.salaryDueOn!)}',
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+            ],
+            const SizedBox(height: 4),
+            // A Wrap, not a Row: there can be three buttons here, and three
+            // buttons do not fit across a 360px phone — which is the screen
+            // this is actually used on.
+            Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 4,
+              runSpacing: 4,
+              children: [
+                if (editable)
+                  TextButton.icon(
+                    onPressed: () => showDeductionSheet(
+                      context,
+                      ref,
+                      profileId: slip.profileId,
+                      staffName: slip.staffName,
+                      month: month,
+                    ),
+                    icon: const Icon(Icons.remove_circle_outline, size: 18),
+                    label: const Text('Deduct'),
+                  ),
+                // A slip is only worth printing once the figures are agreed.
+                if (!slip.isDraft)
+                  TextButton.icon(
+                    onPressed: () =>
+                        showSalarySlipOptions(context, ref, slip),
+                    icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
+                    label: const Text('Slip'),
+                  ),
+                if (slip.status.isPayable)
+                  FilledButton.tonalIcon(
+                    onPressed: () => showPaymentSheet(context, ref, slip),
+                    icon: const Icon(Icons.payments_outlined, size: 18),
+                    label: const Text('Pay'),
+                  ),
+                if (slip.status == PaymentStatus.paid && slip.paidAmount > 0)
+                  TextButton.icon(
+                    onPressed: () => showPaymentSheet(context, ref, slip),
+                    icon: const Icon(Icons.receipt_long_outlined, size: 18),
+                    label: const Text('Payments'),
+                  ),
+              ],
+            ),
           ],
         ),
       ),
     );
+  }
+}
+
+/// Record what was handed over, and see what already was.
+///
+/// One sheet rather than two screens: the question "how much is left" and the
+/// act of paying it belong together, and the history is what stops somebody
+/// paying the same remainder twice.
+Future<void> showPaymentSheet(
+  BuildContext context,
+  WidgetRef ref,
+  Payslip payslip,
+) {
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (context) => Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: _PaymentSheet(payslip: payslip),
+    ),
+  );
+}
+
+class _PaymentSheet extends ConsumerStatefulWidget {
+  const _PaymentSheet({required this.payslip});
+
+  final Payslip payslip;
+
+  @override
+  ConsumerState<_PaymentSheet> createState() => _PaymentSheetState();
+}
+
+class _PaymentSheetState extends ConsumerState<_PaymentSheet> {
+  final _amount = TextEditingController();
+  DateTime _paidOn = DateTime.now();
+  String? _attemptRef;
+  bool _busy = false;
+  String? _error;
+
+  /// The figures move as payments land, so they are read from the live payslip
+  /// rather than from the one this sheet was opened with.
+  Payslip get _slip =>
+      (ref.watch(payslipsProvider).value ?? const <Payslip>[])
+          .where((p) => p.id == widget.payslip.id)
+          .firstOrNull ??
+      widget.payslip;
+
+  @override
+  void initState() {
+    super.initState();
+    // Pre-filled with the whole remainder, because paying it off is the usual
+    // case and a partial payment is the exception.
+    if (widget.payslip.outstanding > 0) {
+      _amount.text = Fmt.plainAmount(widget.payslip.outstanding);
+    }
+    final due = widget.payslip.salaryDueOn;
+    if (due != null && !due.isAfter(DateTime.now())) _paidOn = due;
+  }
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final symbol = ref.watch(currencySymbolProvider);
+    final slip = _slip;
+    final history = ref.watch(paymentsProvider(slip.id));
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        slip.staffName,
+                        style: theme.textTheme.titleLarge
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                      Text(
+                        '${slip.employeeCode} · '
+                        '${Fmt.monthYear(slip.periodMonth)}',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant),
+                      ),
+                    ],
+                  ),
+                ),
+                StatusChip(status: slip.status.wire),
+              ],
+            ),
+            const Divider(height: 24),
+            _Money(label: 'Net payable', value: slip.netPayable),
+            _Money(label: 'Already paid', value: slip.paidAmount),
+            _Money(label: 'Outstanding', value: slip.outstanding, bold: true),
+            if (slip.outstanding > 0) ...[
+              const SizedBox(height: 18),
+              TextField(
+                controller: _amount,
+                autofocus: true,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(
+                  labelText: 'Paying now',
+                  prefixText: '$symbol ',
+                  border: const OutlineInputBorder(),
+                  helperText: 'Pay the whole remainder or part of it.',
+                ),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _pickDate,
+                icon: const Icon(Icons.event_outlined, size: 18),
+                label: Text('Paid on ${Fmt.date(_paidOn)}'),
+              ),
+            ] else ...[
+              const SizedBox(height: 14),
+              InlineBanner(
+                message: 'This month is settled. Nothing is left to pay.',
+                icon: Icons.check_circle_outline,
+                color: AppTheme.good,
+              ),
+            ],
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              InlineBanner(
+                message: _error!,
+                icon: Icons.error_outline,
+                color: AppTheme.low,
+              ),
+            ],
+            if (slip.outstanding > 0) ...[
+              const SizedBox(height: 18),
+              FilledButton(
+                onPressed: _busy ? null : _save,
+                child: const Text('Record payment'),
+              ),
+            ],
+            // The history is the thing that makes a second payment safe to
+            // make: you can see what has already gone out, and when.
+            AsyncView<List<SalaryPayment>>(
+              value: history,
+              onRetry: () => ref.invalidate(paymentsProvider(slip.id)),
+              builder: (context, rows) {
+                if (rows.isEmpty) return const SizedBox(height: 8);
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SectionHeader(title: 'Payments so far'),
+                    for (final p in rows)
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        leading: Icon(
+                          p.isReversal
+                              ? Icons.undo_rounded
+                              : Icons.check_circle_outline,
+                          size: 20,
+                          color: p.isReversal
+                              ? AppTheme.low
+                              : (p.isReversed
+                                  ? theme.colorScheme.onSurfaceVariant
+                                  : AppTheme.good),
+                        ),
+                        title: Text(
+                          Fmt.money(p.amount, symbol: symbol),
+                          style: TextStyle(
+                            decoration:
+                                p.isReversed ? TextDecoration.lineThrough : null,
+                          ),
+                        ),
+                        subtitle: Text(
+                          [
+                            Fmt.date(p.paidOn),
+                            if ((p.method ?? '').isNotEmpty) p.method!,
+                            if (p.isReversal) 'reversal',
+                          ].join(' · '),
+                        ),
+                        trailing: p.isReversal || p.isReversed
+                            ? null
+                            : IconButton(
+                                icon: const Icon(Icons.undo_rounded, size: 18),
+                                tooltip: 'Reverse this payment',
+                                onPressed: _busy ? null : () => _reverse(p),
+                              ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _paidOn,
+      firstDate: DateTime(widget.payslip.periodMonth.year,
+          widget.payslip.periodMonth.month, 1),
+      lastDate: DateTime.now(),
+    );
+    if (picked != null) setState(() => _paidOn = picked);
+  }
+
+  Future<void> _reverse(SalaryPayment payment) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Reverse this payment?'),
+        content: Text(
+          '${Fmt.money(payment.amount, symbol: ref.read(currencySymbolProvider))} '
+          'paid on ${Fmt.date(payment.paidOn)} will be owed again. Both the '
+          'payment and the reversal stay on the record.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Reverse'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await ref.read(staffRepositoryProvider).reversePayment(
+            paymentId: payment.id,
+            clientRef: const Uuid().v4(),
+          );
+      if (!mounted) return;
+      invalidatePayroll(ref);
+      setState(() => _busy = false);
+    } on AppException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = error.message;
+      });
+    }
+  }
+
+  Future<void> _save() async {
+    final amount = double.tryParse(_amount.text.trim());
+    if (amount == null || amount <= 0) {
+      setState(() => _error = 'Enter an amount greater than zero.');
+      return;
+    }
+
+    setState(() {
+      _busy = true;
+      _error = null;
+      _attemptRef ??= const Uuid().v4();
+    });
+
+    try {
+      final result = await ref.read(staffRepositoryProvider).recordPayment(
+            payslipId: widget.payslip.id,
+            amount: amount,
+            clientRef: _attemptRef!,
+            paidOn: _paidOn,
+          );
+      if (!mounted) return;
+      invalidatePayroll(ref);
+
+      final settled = result['settled'] == true;
+      // A fresh reference, so paying the remainder after a partial payment is
+      // a new payment rather than a retry of the last one.
+      _attemptRef = null;
+      _amount.clear();
+      setState(() => _busy = false);
+
+      if (settled) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${widget.payslip.staffName} is paid in full for '
+                '${Fmt.monthYear(widget.payslip.periodMonth)}.'),
+          ),
+        );
+      }
+    } on AppException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = error.message;
+      });
+    }
   }
 }
 

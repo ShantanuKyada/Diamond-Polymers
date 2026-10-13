@@ -3,6 +3,7 @@ import 'package:diamond_polymers/core/demo/demo_overrides.dart';
 import 'package:diamond_polymers/core/demo/demo_operations.dart';
 import 'package:diamond_polymers/core/demo/demo_repositories.dart';
 import 'package:diamond_polymers/core/demo/demo_store.dart';
+import 'package:diamond_polymers/core/utils/formatters.dart';
 import 'package:diamond_polymers/core/error/app_exception.dart';
 import 'package:diamond_polymers/core/theme/app_theme.dart';
 import 'package:diamond_polymers/features/auth/presentation/profile_screen.dart';
@@ -12,6 +13,9 @@ import 'package:diamond_polymers/features/masters/data/settings_values.dart';
 import 'package:diamond_polymers/features/masters/domain/masters.dart';
 import 'package:diamond_polymers/features/masters/presentation/catalog_screens.dart';
 import 'package:diamond_polymers/features/mixture/data/mixture_repository.dart';
+import 'package:diamond_polymers/features/masters/presentation/operators_screen.dart';
+import 'package:diamond_polymers/features/staff/presentation/salary_slip_document.dart';
+import 'package:diamond_polymers/features/staff/data/staff_repository.dart';
 import 'package:diamond_polymers/features/staff/presentation/staff_screens.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -562,6 +566,413 @@ void main() {
       await repo.removeDeduction(added['id'] as String);
       final result = await repo.runPayroll(month);
       expect(result['payslips'], greaterThan(0));
+    });
+  });
+
+  // A39. 0019 worked out what a worker is owed and had no way to record that
+  // they were paid. These cover the half that was missing, and the profile
+  // fields payroll needed: a joining date and the day somebody is paid on.
+  group('Worker profiles and salary payments (A39)', () {
+    test('an admin creates a worker with a salary in one go', () async {
+      final store = DemoStore();
+      final repo = DemoMastersRepository(store);
+
+      await repo.saveStaff(
+        name: 'Worker A',
+        employeeCode: 'EMP-901',
+        role: 'OPERATOR',
+        active: true,
+        phone: '9876543210',
+        joinedOn: DateTime(2026, 7, 1),
+        salaryDay: 7,
+        monthlySalary: 5000,
+      );
+
+      final person = (await repo.staff())
+          .firstWhere((p) => p.employeeCode == 'EMP-901');
+      expect(person.name, 'Worker A');
+      expect(person.monthlySalary, 5000);
+      expect(person.salaryDay, 7);
+      expect(person.joinedOn, DateTime(2026, 7, 1));
+      expect(person.hasSalary, isTrue);
+    });
+
+    test('a worker ID already in use is refused', () async {
+      final store = DemoStore();
+      final repo = DemoMastersRepository(store);
+
+      expect(
+        () => repo.saveStaff(
+          name: 'Somebody Else',
+          employeeCode: 'EMP-101',
+          role: 'OPERATOR',
+          active: true,
+        ),
+        throwsA(isA<AppException>()
+            .having((e) => e.message, 'message', contains('EMP-101'))),
+      );
+    });
+
+    test('a joining date in the future, and an impossible salary day, are '
+        'refused', () async {
+      final store = DemoStore();
+      final repo = DemoMastersRepository(store);
+
+      expect(
+        () => repo.saveStaff(
+          name: 'Time Traveller',
+          employeeCode: 'EMP-902',
+          role: 'OPERATOR',
+          active: true,
+          joinedOn: DateTime.now().add(const Duration(days: 30)),
+        ),
+        throwsA(isA<AppException>()),
+      );
+      expect(
+        () => repo.saveStaff(
+          name: 'Bad Day',
+          employeeCode: 'EMP-903',
+          role: 'OPERATOR',
+          active: true,
+          salaryDay: 32,
+        ),
+        throwsA(isA<AppException>()),
+      );
+    });
+
+    test('somebody already on the roll with no joining date still reads',
+        () async {
+      final store = DemoStore();
+      final repo = DemoMastersRepository(store);
+
+      // Ganesh predates both fields. A screen has to render that, not crash on
+      // it — which is why the demo deliberately leaves him incomplete.
+      final ganesh = (await repo.staff())
+          .firstWhere((p) => p.employeeCode == 'EMP-104');
+      expect(ganesh.joinedOn, isNull);
+      expect(ganesh.salaryDay, isNull);
+      expect(ganesh.hasSalary, isTrue);
+    });
+
+    // The brief's own worked example, through the demo twin.
+    test('5000 salary, 2000 advance, 3000 paid on salary day', () async {
+      final store = DemoStore();
+      final masters = DemoMastersRepository(store);
+      final staff = DemoStaffRepository(store);
+      final month = DateTime.now();
+
+      await masters.saveStaff(
+        name: 'Worker A',
+        employeeCode: 'EMP-901',
+        role: 'OPERATOR',
+        active: true,
+        joinedOn: DateTime(2026, 7, 1),
+        salaryDay: 7,
+        monthlySalary: 5000,
+      );
+      final worker = (await staff.staffPay())
+          .firstWhere((p) => p.employeeCode == 'EMP-901');
+
+      await staff.issueAdvance(
+        profileId: worker.profileId,
+        amount: 2000,
+        clientRef: 'adv-1',
+      );
+      await staff.runPayroll(month);
+
+      var slip = (await staff.payslips(month: month))
+          .firstWhere((s) => s.employeeCode == 'EMP-901');
+
+      // The three figures the factory asked to see.
+      expect(slip.monthlySalary, 5000);
+      expect(slip.advanceRecovered, 2000);
+      expect(slip.netPayable, 3000);
+      expect(slip.status, PaymentStatus.draft);
+
+      // A draft cannot be paid against: its figures can still move.
+      expect(
+        () => staff.recordPayment(
+            payslipId: slip.id, amount: 3000, clientRef: 'pay-0'),
+        throwsA(isA<AppException>()),
+      );
+
+      await staff.finalisePayroll(month);
+      slip = (await staff.payslips(month: month))
+          .firstWhere((s) => s.employeeCode == 'EMP-901');
+      expect(slip.status, PaymentStatus.unpaid);
+      expect(slip.outstanding, 3000);
+
+      await staff.recordPayment(
+          payslipId: slip.id, amount: 3000, clientRef: 'pay-1');
+      slip = (await staff.payslips(month: month))
+          .firstWhere((s) => s.employeeCode == 'EMP-901');
+      expect(slip.paidAmount, 3000);
+      expect(slip.outstanding, 0);
+      expect(slip.status, PaymentStatus.paid);
+    });
+
+    test('partial payments add up, and a retry does not pay twice', () async {
+      final store = DemoStore();
+      final staff = DemoStaffRepository(store);
+      final month = DateTime.now();
+
+      await staff.runPayroll(month);
+      await staff.finalisePayroll(month);
+
+      var slip = (await staff.payslips(month: month))
+          .firstWhere((s) => s.employeeCode == 'EMP-102');
+      final owed = slip.netPayable;
+
+      await staff.recordPayment(
+          payslipId: slip.id, amount: 1000, clientRef: 'p1');
+      // Same reference: the same payment, retried.
+      await staff.recordPayment(
+          payslipId: slip.id, amount: 1000, clientRef: 'p1');
+
+      slip = (await staff.payslips(month: month))
+          .firstWhere((s) => s.employeeCode == 'EMP-102');
+      expect(slip.paidAmount, 1000);
+      expect(slip.status, PaymentStatus.partial);
+
+      await staff.recordPayment(
+          payslipId: slip.id, amount: owed - 1000, clientRef: 'p2');
+      slip = (await staff.payslips(month: month))
+          .firstWhere((s) => s.employeeCode == 'EMP-102');
+      expect(slip.outstanding, 0);
+      expect(slip.status, PaymentStatus.paid);
+
+      // And not a rupee more.
+      expect(
+        () => staff.recordPayment(
+            payslipId: slip.id, amount: 1, clientRef: 'p3'),
+        throwsA(isA<AppException>()
+            .having((e) => e.kind, 'kind', AppErrorKind.insufficientStock)),
+      );
+    });
+
+    test('a reversal gives the money back without erasing the record',
+        () async {
+      final store = DemoStore();
+      final staff = DemoStaffRepository(store);
+      final month = DateTime.now();
+
+      await staff.runPayroll(month);
+      await staff.finalisePayroll(month);
+
+      var slip = (await staff.payslips(month: month))
+          .firstWhere((s) => s.employeeCode == 'EMP-102');
+      final paid = await staff.recordPayment(
+          payslipId: slip.id, amount: 5000, clientRef: 'p1');
+
+      await staff.reversePayment(
+          paymentId: paid['id'] as String, clientRef: 'r1');
+
+      slip = (await staff.payslips(month: month))
+          .firstWhere((s) => s.employeeCode == 'EMP-102');
+      expect(slip.paidAmount, 0);
+      expect(slip.status, PaymentStatus.unpaid);
+
+      // Both rows survive — the payment and its undo.
+      final history = await staff.paymentsFor(slip.id);
+      expect(history, hasLength(2));
+      expect(history.where((p) => p.isReversal), hasLength(1));
+      expect(history.where((p) => p.isReversed), hasLength(1));
+
+      // And it cannot be reversed twice.
+      expect(
+        () => staff.reversePayment(
+            paymentId: paid['id'] as String, clientRef: 'r2'),
+        throwsA(isA<AppException>()),
+      );
+    });
+
+    test('a salary entirely taken as advances reads as paid, not owed',
+        () async {
+      final store = DemoStore();
+      final staff = DemoStaffRepository(store);
+      final month = DateTime.now();
+
+      final ganesh = (await staff.staffPay())
+          .firstWhere((p) => p.employeeCode == 'EMP-104');
+      await staff.issueAdvance(
+        profileId: ganesh.profileId,
+        amount: ganesh.monthlySalary!,
+        clientRef: 'adv-all',
+      );
+      await staff.runPayroll(month);
+      await staff.finalisePayroll(month);
+
+      final slip = (await staff.payslips(month: month))
+          .firstWhere((s) => s.employeeCode == 'EMP-104');
+      expect(slip.netPayable, 0);
+      expect(slip.status, PaymentStatus.paid);
+    });
+
+    test('a salary day past the end of a short month lands on its last day',
+        () {
+      expect(DemoStore.salaryDueOn(DateTime(2027, 2, 1), 31), '2027-02-28');
+      expect(DemoStore.salaryDueOn(DateTime(2027, 2, 1), 7), '2027-02-07');
+      expect(DemoStore.salaryDueOn(DateTime(2027, 2, 1), null), isNull);
+    });
+
+    test('the monthly overview never loses money between the two columns',
+        () async {
+      final store = DemoStore();
+      final staff = DemoStaffRepository(store);
+      final month = DateTime.now();
+
+      await staff.runPayroll(month);
+      await staff.finalisePayroll(month);
+
+      var slip = (await staff.payslips(month: month))
+          .firstWhere((s) => s.employeeCode == 'EMP-102');
+      await staff.recordPayment(
+          payslipId: slip.id, amount: 1000, clientRef: 'p1');
+
+      final period = (await staff.payrollPeriods()).firstWhere((p) =>
+          p.periodMonth.year == month.year &&
+          p.periodMonth.month == month.month);
+
+      expect(period.paidTotal + period.outstandingTotal, period.netTotal);
+      expect(period.partialCount, 1);
+    });
+
+    testWidgets('the payslip card shows what is paid and what is left',
+        (tester) async {
+      tallScreen(tester);
+      await tester.pumpWidget(demoScope(
+        child: MaterialApp(theme: AppTheme.light(), home: const SalaryScreen()),
+      ));
+      await tester.pumpAndSettle();
+
+      // Back one month, to the finalised one.
+      await tester.tap(find.byTooltip('Previous month'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Paid'), findsWidgets);
+      expect(find.text('Outstanding'), findsWidgets);
+      // Ravi is part paid in the demo's previous month.
+      expect(find.text('Part paid'), findsWidgets);
+      // A payable payslip offers a way to pay it, and a slip to print.
+      expect(find.widgetWithText(FilledButton, 'Pay'), findsWidgets);
+      expect(find.widgetWithText(TextButton, 'Slip'), findsWidgets);
+    });
+
+    testWidgets('a draft month offers no way to pay', (tester) async {
+      tallScreen(tester);
+      await tester.pumpWidget(demoScope(
+        child: MaterialApp(theme: AppTheme.light(), home: const SalaryScreen()),
+      ));
+      await tester.pumpAndSettle();
+
+      // The current month is a draft: nothing is agreed, so nothing is payable.
+      expect(find.text('Draft'), findsWidgets);
+      expect(find.widgetWithText(FilledButton, 'Pay'), findsNothing);
+      expect(find.widgetWithText(TextButton, 'Slip'), findsNothing);
+    });
+
+    testWidgets('the worker form carries a joining date, salary and salary day',
+        (tester) async {
+      tallScreen(tester);
+      await tester.pumpWidget(demoScope(
+        child:
+            MaterialApp(theme: AppTheme.light(), home: const OperatorsScreen()),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(FloatingActionButton));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Worker ID *'), findsOneWidget);
+      expect(find.text('Joining date'), findsOneWidget);
+      expect(find.text('Monthly salary'), findsOneWidget);
+      expect(find.text('Salary day'), findsOneWidget);
+      expect(find.text('No fixed day'), findsOneWidget);
+    });
+
+    test('the salary slip prints the advances and payments behind the figure',
+        () async {
+      final store = DemoStore();
+      final staff = DemoStaffRepository(store);
+      final lastMonth = DateTime(DateTime.now().year, DateTime.now().month - 1, 1);
+
+      final slip = (await staff.payslips(month: lastMonth))
+          .firstWhere((s) => s.employeeCode == 'EMP-101');
+
+      final data = SalarySlipData(
+        payslip: slip,
+        advances: await staff.advancesTaken(
+            profileId: slip.profileId, month: lastMonth),
+        payments: await staff.paymentsFor(slip.id),
+        factoryName: 'Diamond Polymers',
+        currencySymbol: '₹',
+      );
+
+      // The slip has to explain the figure, not just state it.
+      expect(data.advances, isNotEmpty);
+      expect(data.payments, isNotEmpty);
+      expect(data.number, contains('EMP-101'));
+
+      final bytes = await buildSalarySlipPdf(data);
+      // A real PDF, not an empty document.
+      expect(bytes.length, greaterThan(1000));
+      expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+    });
+
+    // The `pdf` package draws with Helvetica unless a font is bundled, and
+    // Helvetica has no rupee sign and no em dash. It drops what it cannot draw
+    // and only warns on a console nobody reads — so a slip would have printed
+    // "5,000.00" with no currency at all, and the delivery challan has printed
+    // "Type  Size" with a hole in it since the day it shipped.
+    group('text that will actually draw in a PDF', () {
+      test('the rupee sign is spelled so it appears', () {
+        expect(Fmt.pdfMoney(5000), 'Rs.5,000.00');
+        expect(Fmt.pdfMoney(5000, symbol: r'$'), r'$5,000.00');
+      });
+
+      test('dashes and quotes become their ASCII spellings', () {
+        expect(Fmt.pdfSafe('Type — Size'), 'Type - Size');
+        expect(Fmt.pdfSafe('Ravi’s note'), "Ravi's note");
+        expect(Fmt.pdfSafe('a · b'), 'a - b');
+      });
+
+      test('what cannot be drawn is dropped, never left as a box', () {
+        // Not ideal — a name in Gujarati would vanish rather than print
+        // wrongly — but the employee code beside it is always ASCII, so the
+        // worker on the slip stays identifiable. Bundling a Unicode font is
+        // the real fix if the factory ever enters non-Latin names.
+        expect(Fmt.pdfSafe('रवि'), '');
+        expect(Fmt.pdfSafe('Ravi रवि Kumar'), 'Ravi  Kumar');
+      });
+
+      test('everything a slip puts on the page is drawable', () async {
+        final store = DemoStore();
+        final staff = DemoStaffRepository(store);
+        final lastMonth =
+            DateTime(DateTime.now().year, DateTime.now().month - 1, 1);
+        final slip = (await staff.payslips(month: lastMonth))
+            .firstWhere((s) => s.employeeCode == 'EMP-101');
+
+        final data = SalarySlipData(
+          payslip: slip,
+          advances: await staff.advancesTaken(
+              profileId: slip.profileId, month: lastMonth),
+          payments: await staff.paymentsFor(slip.id),
+          factoryName: 'Diamond Polymers',
+          currencySymbol: '₹',
+        );
+
+        for (final text in [
+          data.money(slip.netPayable),
+          data.text(slip.staffName),
+          data.text(slip.phone),
+          data.text(null),
+          data.number,
+        ]) {
+          expect(text.runes.every((r) => r < 0x80), isTrue,
+              reason: '"$text" has a character Helvetica cannot draw');
+        }
+      });
     });
   });
 

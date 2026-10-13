@@ -105,6 +105,21 @@ const READS = [
   ['v_staff_advances',
     'profile_id, staff_name, employee_code, total_issued, total_recovered, ' +
     'outstanding'],
+  // Worker profiles and salary payments (0020)
+  ['v_payslips',
+    'phone, joined_on, salary_day, salary_due_on, paid_amount, outstanding, ' +
+    'payment_status'],
+  ['v_staff_pay',
+    'phone, active, has_login, joined_on, salary_day, next_due_on'],
+  ['v_salary_payments',
+    'id, payslip_id, profile_id, employee_code, staff_name, period_month, ' +
+    'amount, paid_on, method, reverses, is_reversal, is_reversed, remarks, ' +
+    'created_at'],
+  ['v_salary_advances',
+    'id, profile_id, employee_code, staff_name, period_month, entry_date, ' +
+    'amount, remarks, created_at'],
+  ['v_payroll_summary',
+    'paid_total, outstanding_total, paid_count, partial_count, unpaid_count'],
 ];
 
 await asUser(db, ADMIN_AUTH, async () => {
@@ -165,6 +180,14 @@ const RPCS = [
   ['remove_staff_adjustment', ['p_id']],
   ['run_payroll', ['p_period_month', 'p_remarks']],
   ['finalise_payroll', ['p_period_month']],
+  // Worker profiles and salary payments (0020)
+  ['record_salary_payment',
+    ['p_payslip_id', 'p_amount', 'p_client_ref', 'p_paid_on', 'p_method',
+      'p_remarks']],
+  ['reverse_salary_payment', ['p_payment_id', 'p_client_ref', 'p_remarks']],
+  ['save_worker_profile',
+    ['p_id', 'p_name', 'p_employee_code', 'p_role', 'p_active', 'p_phone',
+      'p_joined_on', 'p_salary_day', 'p_monthly_salary', 'p_salary_from']],
 ];
 
 for (const [name, params] of RPCS) {

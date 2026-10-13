@@ -96,6 +96,10 @@ class ErrorMapper {
     // Validation rather than notConfigured: the operator can fix it here and
     // now by picking a batch, or by recording the material first.
     'DP012': AppErrorKind.validation,
+    // Paying more salary than is left on a payslip (A39). Grouped with DP010
+    // rather than with validation because it is the same situation: the request
+    // is well formed, there simply is not that much left to pay.
+    'DP013': AppErrorKind.insufficientStock,
   };
 
   static AppException map(Object error, [StackTrace? stackTrace]) {

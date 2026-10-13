@@ -108,7 +108,31 @@ class MonthlyAttendance {
       );
 }
 
-/// A payslip, from `v_payslips`. Four figures, and the last is the first three.
+/// Where a payslip stands: not yet agreed, owed, part paid, or settled.
+enum PaymentStatus {
+  /// The month is still a draft, so the figures can change and nothing is
+  /// payable yet. Distinct from [unpaid], which is a debt.
+  draft('DRAFT', 'Draft'),
+  unpaid('UNPAID', 'Unpaid'),
+  partial('PARTIAL', 'Part paid'),
+  paid('PAID', 'Paid');
+
+  const PaymentStatus(this.wire, this.label);
+
+  final String wire;
+  final String label;
+
+  static PaymentStatus fromWire(String? value) =>
+      values.firstWhere((s) => s.wire == value, orElse: () => draft);
+
+  bool get isPayable => this == unpaid || this == partial;
+}
+
+/// A payslip, from `v_payslips`.
+///
+/// The three figures the factory asked to see are [monthlySalary],
+/// [advanceRecovered] and [netPayable] — salary, what was taken during the
+/// month, what is left. [paidAmount] and [outstanding] carry it to settled.
 class Payslip {
   const Payslip({
     required this.id,
@@ -122,6 +146,13 @@ class Payslip {
     required this.deductionsAmount,
     required this.advanceRecovered,
     required this.netPayable,
+    required this.paidAmount,
+    required this.outstanding,
+    required this.status,
+    this.phone,
+    this.joinedOn,
+    this.salaryDay,
+    this.salaryDueOn,
   });
 
   final String id;
@@ -135,6 +166,16 @@ class Payslip {
   final double deductionsAmount;
   final double advanceRecovered;
   final double netPayable;
+  final double paidAmount;
+  final double outstanding;
+  final PaymentStatus status;
+  final String? phone;
+  final DateTime? joinedOn;
+  final int? salaryDay;
+
+  /// The day this month's salary falls due, from the worker's own salary day.
+  /// Null when no salary day is set for them.
+  final DateTime? salaryDueOn;
 
   bool get isDraft => periodStatus == 'DRAFT';
 
@@ -151,6 +192,86 @@ class Payslip {
         deductionsAmount: _toDouble(row['deductions_amount']),
         advanceRecovered: _toDouble(row['advance_recovered']),
         netPayable: _toDouble(row['net_payable']),
+        paidAmount: _toDouble(row['paid_amount']),
+        outstanding: _toDouble(row['outstanding']),
+        status: PaymentStatus.fromWire(row['payment_status'] as String?),
+        phone: row['phone'] as String?,
+        joinedOn: DateTime.tryParse(row['joined_on'] as String? ?? ''),
+        salaryDay: switch (row['salary_day']) {
+          final num n => n.toInt(),
+          final String s => int.tryParse(s),
+          _ => null,
+        },
+        salaryDueOn: DateTime.tryParse(row['salary_due_on'] as String? ?? ''),
+      );
+}
+
+/// One payment handed over against a payslip, from `v_salary_payments`.
+///
+/// The ledger is signed and append-only: a correction is a negative row that
+/// points at what it reverses, so a slip printed next year shows the mistake
+/// and the undo rather than a tidied-up history.
+class SalaryPayment {
+  const SalaryPayment({
+    required this.id,
+    required this.payslipId,
+    required this.profileId,
+    required this.amount,
+    required this.paidOn,
+    required this.isReversal,
+    required this.isReversed,
+    this.method,
+    this.remarks,
+  });
+
+  final String id;
+  final String payslipId;
+  final String profileId;
+  final double amount;
+  final DateTime paidOn;
+  final bool isReversal;
+  final bool isReversed;
+  final String? method;
+  final String? remarks;
+
+  factory SalaryPayment.from(Map<String, dynamic> row) => SalaryPayment(
+        id: row['id'] as String? ?? '',
+        payslipId: row['payslip_id'] as String? ?? '',
+        profileId: row['profile_id'] as String? ?? '',
+        amount: _toDouble(row['amount']),
+        paidOn: DateTime.tryParse(row['paid_on'] as String? ?? '') ??
+            DateTime.now(),
+        isReversal: row['is_reversal'] as bool? ?? false,
+        isReversed: row['is_reversed'] as bool? ?? false,
+        method: row['method'] as String?,
+        remarks: row['remarks'] as String?,
+      );
+}
+
+/// One advance taken, from `v_salary_advances`. The salary slip prints these
+/// with their dates, which is what the worker recognises.
+class AdvanceTaken {
+  const AdvanceTaken({
+    required this.id,
+    required this.profileId,
+    required this.entryDate,
+    required this.amount,
+    this.remarks,
+  });
+
+  final String id;
+  final String profileId;
+  final DateTime entryDate;
+  final double amount;
+  final String? remarks;
+
+  factory AdvanceTaken.from(Map<String, dynamic> row) => AdvanceTaken(
+        id: row['id'] as String? ?? '',
+        profileId: row['profile_id'] as String? ?? '',
+        entryDate: DateTime.tryParse(row['entry_date'] as String? ?? '') ??
+            DateTime.now(),
+        amount: _toDouble(row['amount']),
+        remarks: row['remarks'] as String?,
       );
 }
 
@@ -165,6 +286,11 @@ class PayrollPeriod {
     required this.deductionsTotal,
     required this.advanceRecoveredTotal,
     required this.netTotal,
+    required this.paidTotal,
+    required this.outstandingTotal,
+    required this.paidCount,
+    required this.partialCount,
+    required this.unpaidCount,
     this.finalisedAt,
   });
 
@@ -176,9 +302,18 @@ class PayrollPeriod {
   final double deductionsTotal;
   final double advanceRecoveredTotal;
   final double netTotal;
+  final double paidTotal;
+  final double outstandingTotal;
+  final int paidCount;
+  final int partialCount;
+  final int unpaidCount;
   final DateTime? finalisedAt;
 
   bool get isDraft => status == 'DRAFT';
+
+  /// Everybody has been paid in full. Not the same as `paidTotal == netTotal`
+  /// on an empty month, which would be trivially true of nothing.
+  bool get isSettled => payslipCount > 0 && paidCount == payslipCount;
 
   factory PayrollPeriod.from(Map<String, dynamic> row) => PayrollPeriod(
         id: row['payroll_period_id'] as String? ?? '',
@@ -190,6 +325,11 @@ class PayrollPeriod {
         deductionsTotal: _toDouble(row['deductions_total']),
         advanceRecoveredTotal: _toDouble(row['advance_recovered_total']),
         netTotal: _toDouble(row['net_total']),
+        paidTotal: _toDouble(row['paid_total']),
+        outstandingTotal: _toDouble(row['outstanding_total']),
+        paidCount: _toInt(row['paid_count']),
+        partialCount: _toInt(row['partial_count']),
+        unpaidCount: _toInt(row['unpaid_count']),
         finalisedAt: DateTime.tryParse(row['finalised_at'] as String? ?? ''),
       );
 }
@@ -210,6 +350,9 @@ class StaffPay {
     this.effectiveFrom,
     this.upcomingSalary,
     this.upcomingFrom,
+    this.salaryDay,
+    this.joinedOn,
+    this.nextDueOn,
   });
 
   final String profileId;
@@ -225,6 +368,15 @@ class StaffPay {
   /// Nobody has set a salary yet, so this person cannot be paid.
   bool get hasSalary => monthlySalary != null;
 
+  /// Day of the month they are paid on, 1–31. Null means no fixed day.
+  final int? salaryDay;
+
+  /// The day they joined the factory, where it is recorded.
+  final DateTime? joinedOn;
+
+  /// When this month's salary next falls due, from their own salary day.
+  final DateTime? nextDueOn;
+
   factory StaffPay.from(Map<String, dynamic> row) => StaffPay(
         profileId: row['profile_id'] as String? ?? '',
         staffName: row['staff_name'] as String? ?? '—',
@@ -236,6 +388,13 @@ class StaffPay {
             DateTime.tryParse(row['effective_from'] as String? ?? ''),
         upcomingSalary: _toDoubleOrNull(row['upcoming_salary']),
         upcomingFrom: DateTime.tryParse(row['upcoming_from'] as String? ?? ''),
+        salaryDay: switch (row['salary_day']) {
+          final num n => n.toInt(),
+          final String s => int.tryParse(s),
+          _ => null,
+        },
+        joinedOn: DateTime.tryParse(row['joined_on'] as String? ?? ''),
+        nextDueOn: DateTime.tryParse(row['next_due_on'] as String? ?? ''),
       );
 }
 
@@ -365,11 +524,49 @@ class StaffRepository {
   // Reads
   // ---------------------------------------------------------------------------
 
+  /// Everyone who can be paid. Inactive staff are in `v_staff_pay` so an
+  /// administrator can find somebody they took off the roll, but they do not
+  /// belong on a screen about paying people.
   Future<List<StaffPay>> staffPay() async {
     try {
-      final rows =
-          await _client.from('v_staff_pay').select().order('employee_code');
+      final rows = await _client
+          .from('v_staff_pay')
+          .select()
+          .eq('active', true)
+          .order('employee_code');
       return rows.map(StaffPay.from).toList(growable: false);
+    } catch (error, stack) {
+      throw ErrorMapper.map(error, stack);
+    }
+  }
+
+  /// Every payment against one payslip, oldest first, reversals included.
+  Future<List<SalaryPayment>> paymentsFor(String payslipId) async {
+    try {
+      final rows = await _client
+          .from('v_salary_payments')
+          .select()
+          .eq('payslip_id', payslipId)
+          .order('created_at');
+      return rows.map(SalaryPayment.from).toList(growable: false);
+    } catch (error, stack) {
+      throw ErrorMapper.map(error, stack);
+    }
+  }
+
+  /// The advances one person took during one month, for their salary slip.
+  Future<List<AdvanceTaken>> advancesTaken({
+    required String profileId,
+    required DateTime month,
+  }) async {
+    try {
+      final rows = await _client
+          .from('v_salary_advances')
+          .select()
+          .eq('profile_id', profileId)
+          .eq('period_month', Fmt.isoDate(DateTime(month.year, month.month, 1)))
+          .order('entry_date');
+      return rows.map(AdvanceTaken.from).toList(growable: false);
     } catch (error, stack) {
       throw ErrorMapper.map(error, stack);
     }
@@ -542,6 +739,58 @@ class StaffRepository {
     }
   }
 
+  /// Hands over money against an agreed payslip.
+  ///
+  /// Only works once the month is finalised: a draft's figures still move, and
+  /// paying against a number that can change is how a system ends up paying one
+  /// amount and reporting another. Partial payments are expected — pay what was
+  /// handed over, as many times as it takes.
+  Future<Map<String, dynamic>> recordPayment({
+    required String payslipId,
+    required double amount,
+    required String clientRef,
+    DateTime? paidOn,
+    String? method,
+    String? remarks,
+  }) async {
+    try {
+      return await _client.rpc<Map<String, dynamic>>(
+        'record_salary_payment',
+        params: {
+          'p_payslip_id': payslipId,
+          'p_amount': amount,
+          'p_client_ref': clientRef,
+          'p_paid_on': Fmt.isoDate(paidOn ?? DateTime.now()),
+          'p_method': method,
+          'p_remarks': remarks,
+        },
+      );
+    } catch (error, stack) {
+      throw ErrorMapper.map(error, stack);
+    }
+  }
+
+  /// Takes a payment back without erasing it: the reversal is its own row, so
+  /// the slip still shows what was paid in error and what undid it.
+  Future<Map<String, dynamic>> reversePayment({
+    required String paymentId,
+    required String clientRef,
+    String? remarks,
+  }) async {
+    try {
+      return await _client.rpc<Map<String, dynamic>>(
+        'reverse_salary_payment',
+        params: {
+          'p_payment_id': paymentId,
+          'p_client_ref': clientRef,
+          'p_remarks': remarks,
+        },
+      );
+    } catch (error, stack) {
+      throw ErrorMapper.map(error, stack);
+    }
+  }
+
   /// Closes the month. This is the point at which the advances shown on the
   /// payslips actually come off the advance ledger, so it happens once.
   Future<Map<String, dynamic>> finalisePayroll(DateTime month) async {
@@ -627,6 +876,13 @@ final advancesProvider = FutureProvider<List<StaffAdvance>>((ref) async {
   return ref.watch(staffRepositoryProvider).advances();
 });
 
+/// The payments against one payslip. Keyed by payslip id, so opening two
+/// workers' histories does not make them share one list.
+final paymentsProvider =
+    FutureProvider.family<List<SalaryPayment>, String>((ref, payslipId) async {
+  return ref.watch(staffRepositoryProvider).paymentsFor(payslipId);
+});
+
 /// Everything the Salary screen shows, after anything on it changes.
 void invalidatePayroll(WidgetRef ref) {
   ref
@@ -634,5 +890,8 @@ void invalidatePayroll(WidgetRef ref) {
     ..invalidate(payrollPeriodsProvider)
     ..invalidate(payslipsProvider)
     ..invalidate(deductionsProvider)
-    ..invalidate(advancesProvider);
+    ..invalidate(advancesProvider)
+    // The whole family: a payment changes one payslip's history, and which one
+    // is not worth threading through every caller.
+    ..invalidate(paymentsProvider);
 }

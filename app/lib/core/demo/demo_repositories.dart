@@ -883,31 +883,127 @@ class DemoMastersRepository implements MastersRepository {
     });
   }
 
+  /// The roster, with each person's salary merged in — which is what
+  /// `v_staff_pay` does in the live app. Reading the two lists separately here
+  /// would let the demo show a salary the roster disagreed with.
   @override
   Future<List<StaffMember>> staff({bool includeInactive = true}) async {
     return _latency(() => _store.staff
         .where((p) => includeInactive || p['active'] == true)
-        .map(StaffMember.from)
+        .map((p) {
+          final pay = _store.staffPayRows
+              .firstWhere((r) => r['profile_id'] == p['id'], orElse: () => {});
+          return StaffMember.from({
+            ...p,
+            'monthly_salary': pay['monthly_salary'],
+          });
+        })
         .toList(growable: false));
   }
 
   @override
-  Future<void> saveStaff({
+  Future<Map<String, dynamic>> saveStaff({
     String? id,
     required String name,
     required String employeeCode,
     required String role,
     required bool active,
     String? phone,
+    DateTime? joinedOn,
+    int? salaryDay,
+    double? monthlySalary,
+    DateTime? salaryFrom,
   }) async {
-    await _latency(() => _upsert(_store.staff, id, {
-          'name': name,
-          'employee_code': employeeCode,
-          'role': role,
-          'active': active,
-          'phone': phone,
-          'auth_user_id': null,
-        }));
+    return _latency(() {
+      final code = employeeCode.trim();
+
+      if (name.trim().isEmpty) {
+        throw const AppException(
+          kind: AppErrorKind.validation,
+          message: 'A name is required.',
+        );
+      }
+      if (code.isEmpty) {
+        throw const AppException(
+          kind: AppErrorKind.validation,
+          message: 'A worker ID is required.',
+        );
+      }
+      if (salaryDay != null && (salaryDay < 1 || salaryDay > 31)) {
+        throw const AppException(
+          kind: AppErrorKind.validation,
+          message: 'The salary day must be a day of the month, 1 to 31.',
+        );
+      }
+      if (joinedOn != null && joinedOn.isAfter(DateTime.now())) {
+        throw const AppException(
+          kind: AppErrorKind.validation,
+          message: 'A joining date cannot be in the future.',
+        );
+      }
+      if (_store.staff
+          .any((p) => p['employee_code'] == code && p['id'] != id)) {
+        throw AppException(
+          kind: AppErrorKind.validation,
+          message: 'Worker ID $code is already used by somebody else.',
+        );
+      }
+
+      _upsert(_store.staff, id, {
+        'name': name.trim(),
+        'employee_code': code,
+        'role': role,
+        'active': active,
+        'phone': (phone ?? '').trim().isEmpty ? null : phone!.trim(),
+        'joined_on': joinedOn == null ? null : Fmt.isoDate(joinedOn),
+        'salary_day': salaryDay,
+        if (id == null) 'auth_user_id': null,
+      });
+
+      final person = id == null
+          ? _store.staff.firstWhere((p) => p['employee_code'] == code)
+          : _store.staff.firstWhere((p) => p['id'] == id);
+      final profileId = person['id'] as String;
+
+      // The salary lives apart from the profile, and is only written when it
+      // actually changed — re-saving a profile must not look like a raise.
+      if (monthlySalary != null) {
+        final pay = _store.staffPayRows
+            .firstWhere((r) => r['profile_id'] == profileId, orElse: () => {});
+        if (pay.isEmpty) {
+          _store.staffPayRows.add({
+            'profile_id': profileId,
+            'employee_code': code,
+            'staff_name': name.trim(),
+            'role': role,
+            'phone': person['phone'],
+            'active': active,
+            'has_login': person['auth_user_id'] != null,
+            'joined_on': person['joined_on'],
+            'salary_day': salaryDay,
+            'next_due_on': DemoStore.salaryDueOn(DateTime.now(), salaryDay),
+            'salary_structure_id': _store.nextId('sal'),
+            'monthly_salary': monthlySalary,
+            'effective_from': Fmt.isoDate(
+                salaryFrom ?? joinedOn ?? DateTime.now()),
+            'upcoming_salary': null,
+            'upcoming_from': null,
+            'outstanding_advance': 0.0,
+          });
+        } else {
+          pay['monthly_salary'] = monthlySalary;
+          pay['staff_name'] = name.trim();
+          pay['employee_code'] = code;
+          pay['active'] = active;
+          pay['joined_on'] = person['joined_on'];
+          pay['salary_day'] = salaryDay;
+          pay['next_due_on'] =
+              DemoStore.salaryDueOn(DateTime.now(), salaryDay);
+        }
+      }
+
+      return {'id': profileId, 'created': id == null};
+    });
   }
 
   @override

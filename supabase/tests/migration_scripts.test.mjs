@@ -112,6 +112,40 @@ if (Array.isArray(ver)) {
   }
 }
 
+// =============================================================================
+section('0020 preflight, on a database at 0019');
+
+const at19 = await build({ quiet: true, upto: '0019_simple_payroll.sql' });
+const pre20 = await run(at19, '0020_preflight.sql');
+
+check('the 0020 preflight runs at all', Array.isArray(pre20), pre20.error ?? '');
+if (Array.isArray(pre20)) {
+  check('it confirms 0019 is in place and 0020 is not',
+    pre20.find((r) => r.check.startsWith('01'))?.ok === true &&
+    pre20.find((r) => r.check.startsWith('02'))?.ok === true,
+    JSON.stringify(pre20.filter((r) => r.ok === false).map((r) => r.check)));
+}
+
+await applyMigration(at19, '0020_worker_profiles_and_salary_payments.sql');
+const pre20Again = await run(at19, '0020_preflight.sql');
+check('and still runs once 0020 has been applied',
+  Array.isArray(pre20Again) &&
+  pre20Again.find((r) => r.check.startsWith('02'))?.ok === false,
+  pre20Again.error ?? JSON.stringify(pre20Again.find?.((r) => r.check.startsWith('02'))));
+
+// =============================================================================
+section('0020 verify, on a fully migrated database');
+
+const after20 = await build({ quiet: true });
+const ver20 = await run(after20, '0020_verify.sql');
+
+check('the 0020 verify script runs at all', Array.isArray(ver20), ver20.error ?? '');
+if (Array.isArray(ver20)) {
+  for (const row of ver20) {
+    check(row.check, row.ok === true, row.detail ?? '');
+  }
+}
+
 console.log(`\n${'═'.repeat(64)}`);
 console.log(`  ${pass} passed, ${fail} failed`);
 if (fail) { console.log('\n  Failures:'); failures.forEach((f) => console.log(`   - ${f}`)); }

@@ -69,6 +69,13 @@ class DemoStore {
   final List<Map<String, dynamic>> deductionRows = [];
   final List<Map<String, dynamic>> advanceRows = [];
 
+  /// Money handed over against a payslip (A39), signed and append-only like the
+  /// real ledger: a correction is a negative row, never an edit.
+  final List<Map<String, dynamic>> paymentRows = [];
+
+  /// Individual advances with their dates, for the salary slip.
+  final List<Map<String, dynamic>> advanceTakenRows = [];
+
   /// Who is signed in. Set by the demo auth repository, and read by the
   /// repositories that behave differently for an administrator — exactly as
   /// the database reads auth.uid().
@@ -105,6 +112,39 @@ class DemoStore {
   int _sequence = 0;
 
   String nextId(String prefix) => '$prefix-${(++_sequence).toString().padLeft(4, '0')}';
+
+  /// Where a payslip stands, mirroring the CASE in `v_payslips`.
+  ///
+  /// Duplicated from the database on purpose. The demo has to reach the same
+  /// verdict the live app would, and the two places that decide it are checked
+  /// against each other by the tests.
+  static String paymentStatus({
+    required String periodStatus,
+    required double netPayable,
+    required double paid,
+  }) {
+    // A draft is not payable: its figures can still change. Said plainly so an
+    // empty "unpaid" cannot be read as a debt.
+    if (periodStatus != 'FINALISED') return 'DRAFT';
+    // Nothing left to hand over — which is also the honest answer when the
+    // whole salary went out as advances during the month.
+    if (netPayable - paid <= 0) return 'PAID';
+    if (paid > 0) return 'PARTIAL';
+    return 'UNPAID';
+  }
+
+  /// The day a month's salary falls due, mirroring `app.salary_due_on()`.
+  ///
+  /// Somebody paid on the 31st is due on the 28th of February, not on a date
+  /// that does not exist. Duplicated here on purpose: the demo has to agree with
+  /// the database, and a demo that quietly rounded differently would be worse
+  /// than one that had no answer at all.
+  static String? salaryDueOn(DateTime month, int? salaryDay) {
+    if (salaryDay == null) return null;
+    final lastDay = DateTime(month.year, month.month + 1, 0).day;
+    final day = salaryDay > lastDay ? lastDay : salaryDay;
+    return Fmt.isoDate(DateTime(month.year, month.month, day));
+  }
 
   // ---------------------------------------------------------------------------
   // Derived values. Recomputed on read so a write on one screen shows up on
@@ -335,12 +375,16 @@ class DemoStore {
     }
 
     staff.addAll([
-      _person(adminId, 'Factory Admin', 'EMP-001', 'ADMIN', hasLogin: true),
-      _person(raviId, 'Ravi Kumar', 'EMP-101', 'OPERATOR', hasLogin: true),
+      _person(adminId, 'Factory Admin', 'EMP-001', 'ADMIN',
+          hasLogin: true, joinedOn: '2021-04-01', salaryDay: 1),
+      _person(raviId, 'Ravi Kumar', 'EMP-101', 'OPERATOR',
+          hasLogin: true, joinedOn: '2023-06-12', salaryDay: 7),
       _person('66666666-6666-4666-8666-000000000003', 'Suresh Patel', 'EMP-102',
-          'OPERATOR'),
+          'OPERATOR', joinedOn: '2024-01-15', salaryDay: 7),
       _person('66666666-6666-4666-8666-000000000004', 'Imran Shaikh', 'EMP-103',
-          'OPERATOR'),
+          'OPERATOR', joinedOn: '2025-09-01', salaryDay: 10),
+      // No joining date and no salary day: somebody who was already on the roll
+      // before either field existed.
       _person('66666666-6666-4666-8666-000000000005', 'Ganesh Jadhav', 'EMP-104',
           'OPERATOR'),
     ]);
@@ -558,6 +602,8 @@ class DemoStore {
     String employeeCode,
     String role, {
     bool hasLogin = false,
+    String? joinedOn,
+    int? salaryDay,
   }) {
     return {
       'id': id,
@@ -567,6 +613,11 @@ class DemoStore {
       'role': role,
       'active': true,
       'auth_user_id': hasLogin ? 'auth-$employeeCode' : null,
+      // Deliberately not filled in for everybody. One worker with no joining
+      // date on record is the real state of the live roster, and the screens
+      // have to read sensibly for them rather than only for complete rows.
+      'joined_on': joinedOn,
+      'salary_day': salaryDay,
     };
   }
 
@@ -749,6 +800,12 @@ class DemoStore {
         'employee_code': person['employee_code'],
         'staff_name': person['name'],
         'role': person['role'],
+        'phone': person['phone'],
+        'active': person['active'],
+        'has_login': person['auth_user_id'] != null,
+        'joined_on': person['joined_on'],
+        'salary_day': person['salary_day'],
+        'next_due_on': salaryDueOn(monthStart, person['salary_day'] as int?),
         'salary_structure_id': 'sal-$id',
         'monthly_salary': salary,
         'effective_from': Fmt.isoDate(DateTime(today.year, 1, 1)),
@@ -771,45 +828,213 @@ class DemoStore {
         });
       }
 
-      payslipRows.add({
-        'id': nextId('pay'),
-        'profile_id': id,
-        'staff_name': person['name'],
+      addPayslip(
+        month: monthStart,
+        person: person,
+        salary: salary,
+        deductions: deductions,
+        advance: advance,
+        periodStatus: 'DRAFT',
+      );
+    }
+
+    // The month before, closed and partly paid, so the demo shows all four
+    // payment states and the salary slip has something real to print. The
+    // current month is left as a draft, which is where the walk-through starts:
+    // calculate, finalise, then pay.
+    final lastMonth = DateTime(monthStart.year, monthStart.month - 1, 1);
+    const lastMonthPaid = <String, double>{
+      adminId: 42000,
+      raviId: 10000, // part paid
+      '66666666-6666-4666-8666-000000000003': 0, // owed in full
+      '66666666-6666-4666-8666-000000000004': 21000,
+      '66666666-6666-4666-8666-000000000005': 21000,
+    };
+
+    for (final person in staff) {
+      final id = person['id'] as String;
+      final salary = id == adminId ? 42000.0 : 21000.0;
+      final advance = id == raviId ? 2000.0 : 0.0;
+      final paid = lastMonthPaid[id] ?? 0;
+
+      if (advance > 0) {
+        advanceTakenRows.add({
+          'id': nextId('adv'),
+          'profile_id': id,
+          'employee_code': person['employee_code'],
+          'staff_name': person['name'],
+          'period_month': Fmt.isoDate(lastMonth),
+          'entry_date': Fmt.isoDate(DateTime(lastMonth.year, lastMonth.month, 14)),
+          'amount': advance,
+          'remarks': 'Asked mid-month',
+          'created_at': lastMonth.toIso8601String(),
+        });
+      }
+
+      addPayslip(
+        month: lastMonth,
+        person: person,
+        salary: salary,
+        deductions: 0,
+        advance: advance,
+        periodStatus: 'FINALISED',
+        payments: paid <= 0
+            ? const []
+            : [
+                (paid, salaryDueOn(lastMonth, person['salary_day'] as int?) ??
+                    Fmt.isoDate(DateTime(lastMonth.year, lastMonth.month, 28))),
+              ],
+      );
+    }
+
+    // This month's advance for Ravi, still outstanding — the 3000 the balance
+    // view reports.
+    advanceTakenRows.add({
+      'id': nextId('adv'),
+      'profile_id': raviId,
+      'employee_code': 'EMP-101',
+      'staff_name': 'Ravi Kumar',
+      'period_month': Fmt.isoDate(monthStart),
+      'entry_date': Fmt.isoDate(DateTime(monthStart.year, monthStart.month, 9)),
+      'amount': 3000.0,
+      'remarks': null,
+      'created_at': monthStart.toIso8601String(),
+    });
+
+    rollUpPeriod(lastMonth, 'FINALISED');
+    rollUpPeriod(monthStart, 'DRAFT');
+    _seedAdvanceBalances(today);
+  }
+
+  /// Adds a payslip for one person in one month, with whatever has been paid
+  /// against it. Keeps the derived figures in step so no seeded row can
+  /// contradict the arithmetic the screens assert.
+  ///
+  /// [person] may be a row from [staff] or from [staffPayRows]: the seed has the
+  /// first to hand and the payroll run has the second, and they name the id
+  /// differently.
+  String addPayslip({
+    required DateTime month,
+    required Map<String, dynamic> person,
+    required double salary,
+    required double deductions,
+    required double advance,
+    required String periodStatus,
+    List<(double, String)> payments = const [],
+  }) {
+    final id = nextId('pay');
+    final net = salary - deductions - advance;
+    final profileId = (person['id'] ?? person['profile_id']) as String;
+    // Normalised here rather than trusted from the caller: a payroll month is
+    // always the first of the month, and a payslip filed under the 13th is a
+    // payslip no query for that month will ever find.
+    final month0 = DateTime(month.year, month.month, 1);
+
+    for (final (amount, paidOn) in payments) {
+      paymentRows.add({
+        'id': nextId('spay'),
+        'payslip_id': id,
+        'profile_id': profileId,
         'employee_code': person['employee_code'],
-        'role': person['role'],
-        'period_month': Fmt.isoDate(monthStart),
-        'period_status': 'DRAFT',
-        'monthly_salary': salary,
-        'deductions_amount': deductions,
-        'advance_recovered': advance,
-        'net_payable': salary - deductions - advance,
-        'created_at': monthStart.toIso8601String(),
+        'staff_name': person['name'],
+        'period_month': Fmt.isoDate(month0),
+        'amount': amount,
+        'paid_on': paidOn,
+        'method': 'Cash',
+        'reverses': null,
+        'is_reversal': false,
+        'is_reversed': false,
+        'remarks': null,
+        'created_at': month0.toIso8601String(),
       });
     }
 
-    payrollPeriodRows.add({
-      'payroll_period_id': nextId('period'),
-      'period_month': Fmt.isoDate(monthStart),
-      'status': 'DRAFT',
-      'payslip_count': payslipRows.length,
-      'salary_total': payslipRows.fold<double>(
-          0, (sum, r) => sum + (r['monthly_salary'] as double)),
-      'deductions_total': payslipRows.fold<double>(
-          0, (sum, r) => sum + (r['deductions_amount'] as double)),
-      'advance_recovered_total': payslipRows.fold<double>(
-          0, (sum, r) => sum + (r['advance_recovered'] as double)),
-      'net_total': payslipRows.fold<double>(
-          0, (sum, r) => sum + (r['net_payable'] as double)),
-      'finalised_at': null,
+    final paid = payments.fold<double>(0, (sum, p) => sum + p.$1);
+
+    payslipRows.add({
+      'id': id,
+      'profile_id': profileId,
+      'staff_name': person['name'] ?? person['staff_name'],
+      'employee_code': person['employee_code'],
+      'role': person['role'],
+      'phone': person['phone'],
+      'joined_on': person['joined_on'],
+      'salary_day': person['salary_day'],
+      'salary_due_on': salaryDueOn(month0, person['salary_day'] as int?),
+      'period_month': Fmt.isoDate(month0),
+      'period_status': periodStatus,
+      'monthly_salary': salary,
+      'deductions_amount': deductions,
+      'advance_recovered': advance,
+      'net_payable': net,
+      'paid_amount': paid,
+      'outstanding': net - paid,
+      'payment_status': paymentStatus(
+          periodStatus: periodStatus, netPayable: net, paid: paid),
+      'created_at': month0.toIso8601String(),
     });
 
+    return id;
+  }
+
+  /// Rebuilds one month's summary row from the payslips in that month.
+  ///
+  /// Folded over the month's own rows, not over every payslip in the store —
+  /// which is what the first version did, and which was correct only while
+  /// there was a single month to fold.
+  void rollUpPeriod(DateTime month, String status) {
+    final iso = Fmt.isoDate(month);
+    final slips =
+        payslipRows.where((r) => r['period_month'] == iso).toList();
+    double total(String key) =>
+        slips.fold<double>(0, (sum, r) => sum + (r[key] as double));
+    int counted(String s) =>
+        slips.where((r) => r['payment_status'] == s).length;
+
+    final summary = {
+      'period_month': iso,
+      'status': status,
+      'payslip_count': slips.length,
+      'salary_total': total('monthly_salary'),
+      'deductions_total': total('deductions_amount'),
+      'advance_recovered_total': total('advance_recovered'),
+      'net_total': total('net_payable'),
+      'paid_total': total('paid_amount'),
+      'outstanding_total': total('outstanding'),
+      'paid_count': counted('PAID'),
+      'partial_count': counted('PARTIAL'),
+      'unpaid_count': counted('UNPAID'),
+      'finalised_at':
+          status == 'FINALISED' ? month.toIso8601String() : null,
+    };
+
+    final existing = payrollPeriodRows
+        .firstWhere((r) => r['period_month'] == iso, orElse: () => {});
+    if (existing.isEmpty) {
+      payrollPeriodRows.insert(0, {
+        'payroll_period_id': nextId('period'),
+        ...summary,
+      });
+    } else {
+      existing.addAll(summary);
+    }
+
+    payrollPeriodRows.sort((a, b) =>
+        (b['period_month'] as String).compareTo(a['period_month'] as String));
+  }
+
+  /// The advance balances, which must agree with [advanceTakenRows] above: Ravi
+  /// took 2000 last month and 3000 this month, and only the first has been
+  /// recovered. A seeded balance that did not add up would be a demo teaching
+  /// the wrong arithmetic.
+  void _seedAdvanceBalances(DateTime today) {
     advanceRows.addAll([
       {
         'profile_id': raviId,
         'staff_name': 'Ravi Kumar',
         'employee_code': 'EMP-101',
-        'total_issued': 8000.0,
-        'total_recovered': 5000.0,
+        'total_issued': 5000.0,
+        'total_recovered': 2000.0,
         'outstanding': 3000.0,
         'updated_at': today.toIso8601String(),
       },

@@ -66,8 +66,15 @@ class OperatorsScreen extends ConsumerWidget {
     final name = TextEditingController(text: existing?.name ?? '');
     final code = TextEditingController(text: existing?.employeeCode ?? '');
     final phone = TextEditingController(text: existing?.phone ?? '');
+    final salary = TextEditingController(
+      text: existing?.monthlySalary == null
+          ? ''
+          : Fmt.plainAmount(existing!.monthlySalary!),
+    );
     var role = existing?.role ?? UserRole.operator.wire;
     var active = existing?.active ?? true;
+    var joinedOn = existing?.joinedOn;
+    var salaryDay = existing?.salaryDay;
 
     final saved = await showEditSheet(
       context: context,
@@ -81,7 +88,7 @@ class OperatorsScreen extends ConsumerWidget {
         ),
         SheetField(
           controller: code,
-          label: 'Employee code',
+          label: 'Worker ID',
           hint: 'EMP-105',
           required: true,
           helper: 'Must be unique. Used to attach a login later.',
@@ -90,6 +97,43 @@ class OperatorsScreen extends ConsumerWidget {
           controller: phone,
           label: 'Phone',
           keyboardType: TextInputType.phone,
+        ),
+        _PickedDate(
+          label: 'Joining date',
+          value: joinedOn,
+          helper: 'When they started at the factory.',
+          firstDate: DateTime(DateTime.now().year - 40),
+          lastDate: DateTime.now(),
+          onChanged: (value) {
+            joinedOn = value;
+            rebuild();
+          },
+        ),
+        SheetField(
+          controller: salary,
+          label: 'Monthly salary',
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          helper: existing?.monthlySalary == null
+              ? 'Leave blank to set it later. Nobody without a salary appears '
+                  'on the payroll.'
+              : 'Changing this records a new salary from today. Payslips '
+                  'already issued keep the rate they were paid at.',
+          validator: (value) {
+            final text = (value ?? '').trim();
+            if (text.isEmpty) return null;
+            final amount = double.tryParse(text);
+            if (amount == null || amount <= 0) {
+              return 'Enter an amount greater than zero, or leave it blank.';
+            }
+            return null;
+          },
+        ),
+        _SalaryDayPicker(
+          value: salaryDay,
+          onChanged: (value) {
+            salaryDay = value;
+            rebuild();
+          },
         ),
         SheetDropdown<String>(
           label: 'Role',
@@ -133,6 +177,9 @@ class OperatorsScreen extends ConsumerWidget {
             role: role,
             active: active,
             phone: phone.text,
+            joinedOn: joinedOn,
+            salaryDay: salaryDay,
+            monthlySalary: double.tryParse(salary.text.trim()),
           ),
     );
 
@@ -418,6 +465,48 @@ class _StaffTile extends StatelessWidget {
                     ),
                   ],
                 ),
+                // The salary, or the fact that there isn't one — which is what
+                // keeps somebody off the payroll, so it has to be visible from
+                // the roster rather than discovered at month end.
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.payments_outlined,
+                      size: 14,
+                      color: person.hasSalary
+                          ? scheme.onSurfaceVariant
+                          : AppTheme.low,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      person.hasSalary
+                          ? Fmt.money(person.monthlySalary) +
+                              (person.salaryDay == null
+                                  ? ''
+                                  : ' · ${Fmt.ordinalDay(person.salaryDay!)}')
+                          : 'No salary set',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: person.hasSalary ? null : AppTheme.low,
+                            fontWeight:
+                                person.hasSalary ? null : FontWeight.w600,
+                          ),
+                    ),
+                  ],
+                ),
+                if (person.joinedOn != null)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.event_available_outlined,
+                          size: 14, color: scheme.onSurfaceVariant),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Joined ${Fmt.date(person.joinedOn!)}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
                 if (!person.active) const StatusChip(status: 'INACTIVE'),
               ],
             ),
@@ -442,6 +531,118 @@ class _StaffTile extends StatelessWidget {
         ],
       ),
       onTap: onEdit,
+    );
+  }
+}
+
+/// A date shown as a tappable row, for use inside [showEditSheet].
+///
+/// A text field for a date invites "12/3" and all the ambiguity that follows.
+/// A picker cannot produce a date that does not exist, and an unset date stays
+/// genuinely unset — which is the right answer for staff who were on the roll
+/// before anybody recorded a joining date.
+class _PickedDate extends StatelessWidget {
+  const _PickedDate({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+    required this.firstDate,
+    required this.lastDate,
+    this.helper,
+  });
+
+  final String label;
+  final DateTime? value;
+  final ValueChanged<DateTime?> onChanged;
+  final DateTime firstDate;
+  final DateTime lastDate;
+  final String? helper;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: label,
+          helperText: helper,
+          helperMaxLines: 3,
+          border: const OutlineInputBorder(),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                value == null ? 'Not recorded' : Fmt.date(value!),
+                style: value == null
+                    ? theme.textTheme.bodyLarge
+                        ?.copyWith(color: theme.colorScheme.onSurfaceVariant)
+                    : theme.textTheme.bodyLarge,
+              ),
+            ),
+            if (value != null)
+              IconButton(
+                icon: const Icon(Icons.close, size: 18),
+                tooltip: 'Clear',
+                onPressed: () => onChanged(null),
+              ),
+            IconButton(
+              icon: const Icon(Icons.event_outlined, size: 20),
+              tooltip: 'Pick a date',
+              onPressed: () async {
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: value ?? lastDate,
+                  firstDate: firstDate,
+                  lastDate: lastDate,
+                );
+                if (picked != null) onChanged(picked);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Which day of the month somebody is paid on.
+///
+/// 1 to 31, and "no fixed day" as a real choice rather than a blank. A worker
+/// paid on the 31st is due on the last day of a short month, which the database
+/// works out — so 29, 30 and 31 are offered without a caveat here.
+class _SalaryDayPicker extends StatelessWidget {
+  const _SalaryDayPicker({required this.value, required this.onChanged});
+
+  final int? value;
+  final ValueChanged<int?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: DropdownButtonFormField<int?>(
+        initialValue: value,
+        isExpanded: true,
+        decoration: const InputDecoration(
+          labelText: 'Salary day',
+          helperText: 'The day of the month their salary is paid. A day past '
+              'the end of a short month falls on its last day.',
+          helperMaxLines: 3,
+          border: OutlineInputBorder(),
+        ),
+        items: [
+          const DropdownMenuItem(value: null, child: Text('No fixed day')),
+          for (var day = 1; day <= 31; day++)
+            DropdownMenuItem(
+              value: day,
+              child: Text('${Fmt.ordinalDay(day)} of the month'),
+            ),
+        ],
+        onChanged: onChanged,
+      ),
     );
   }
 }

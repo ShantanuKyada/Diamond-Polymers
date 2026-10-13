@@ -75,7 +75,7 @@ Future<List<int>> buildChallanPdf(ChallanData data) async {
 
   final columns = <_Column>[
     _Column('#', (l) => '', flex: 0),
-    _Column('Product', (l) => '${l.pipeTypeName} — ${l.pipeSizeName}', flex: 5),
+    _Column('Product', (l) => '${l.pipeTypeName} - ${l.pipeSizeName}', flex: 5),
     _Column('Bundles', (l) => Fmt.count(l.bundleQuantity),
         flex: 2, numeric: true),
     // Bags only appear when some line has them: an always-zero column makes a
@@ -120,20 +120,20 @@ pw.Widget _header(ChallanData data) {
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
                 pw.Text(
-                  data.factoryName,
+                  Fmt.pdfSafe(data.factoryName),
                   style: pw.TextStyle(
                       fontSize: 18, fontWeight: pw.FontWeight.bold),
                 ),
                 if ((data.factoryAddress ?? '').trim().isNotEmpty)
-                  pw.Text(data.factoryAddress!.trim(),
+                  pw.Text(Fmt.pdfSafe(data.factoryAddress!.trim()),
                       style: const pw.TextStyle(fontSize: 9)),
                 if ((data.factoryPhone ?? '').trim().isNotEmpty)
-                  pw.Text('Phone: ${data.factoryPhone!.trim()}',
+                  pw.Text(Fmt.pdfSafe('Phone: ${data.factoryPhone!.trim()}'),
                       style: const pw.TextStyle(fontSize: 9)),
                 // Omitted entirely rather than printed empty — an unregistered
                 // factory should not have a blank GSTIN line on its paperwork.
                 if ((data.factoryGstin ?? '').trim().isNotEmpty)
-                  pw.Text('GSTIN: ${data.factoryGstin!.trim()}',
+                  pw.Text(Fmt.pdfSafe('GSTIN: ${data.factoryGstin!.trim()}'),
                       style: const pw.TextStyle(fontSize: 9)),
               ],
             ),
@@ -145,7 +145,7 @@ pw.Widget _header(ChallanData data) {
                   style: pw.TextStyle(
                       fontSize: 13, fontWeight: pw.FontWeight.bold)),
               pw.SizedBox(height: 4),
-              pw.Text(data.number,
+              pw.Text(Fmt.pdfSafe(data.number),
                   style: const pw.TextStyle(fontSize: 11)),
               pw.Text(Fmt.date(data.dispatch.date),
                   style: const pw.TextStyle(fontSize: 9)),
@@ -179,7 +179,7 @@ pw.Widget _parties(ChallanData data) {
                     color: PdfColors.grey700,
                     fontWeight: pw.FontWeight.bold)),
             pw.SizedBox(height: 2),
-            pw.Text(d.customerName,
+            pw.Text(Fmt.pdfSafe(d.customerName),
                 style: pw.TextStyle(
                     fontSize: 12, fontWeight: pw.FontWeight.bold)),
           ],
@@ -201,13 +201,15 @@ pw.Widget _field(String label, String? value) {
   return pw.Column(
     crossAxisAlignment: pw.CrossAxisAlignment.start,
     children: [
-      pw.Text(label,
+      pw.Text(Fmt.pdfSafe(label),
           style: pw.TextStyle(
               fontSize: 8,
               color: PdfColors.grey700,
               fontWeight: pw.FontWeight.bold)),
       pw.SizedBox(height: 2),
-      pw.Text((value ?? '').trim().isEmpty ? '—' : value!.trim(),
+      pw.Text(Fmt.pdfSafe((value ?? '').trim()).trim().isEmpty
+              ? '-'
+              : Fmt.pdfSafe(value!.trim()),
           style: const pw.TextStyle(fontSize: 11)),
     ],
   );
@@ -219,7 +221,11 @@ pw.Widget _lineTable(ChallanData data, List<_Column> columns) {
     return pw.Padding(
       padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 5),
       child: pw.Text(
-        text,
+        // A product name or a customer name is typed by the factory, and the
+        // standard PDF font silently drops anything it cannot draw. See
+        // Fmt.pdfSafe — this document printed a hole where its em dash was
+        // from the day it shipped.
+        Fmt.pdfSafe(text),
         textAlign: numeric ? pw.TextAlign.right : pw.TextAlign.left,
         style: pw.TextStyle(
             fontSize: size,
@@ -277,7 +283,7 @@ pw.Widget _totals(ChallanData data) {
             pw.Text('${Fmt.count(data.totalBundles)} bundles',
                 style: const pw.TextStyle(fontSize: 10)),
             if (data.hasBags)
-              pw.Text('   ·   ${Fmt.count(data.totalBags)} bags',
+              pw.Text(Fmt.pdfSafe('   ·   ${Fmt.count(data.totalBags)} bags'),
                   style: const pw.TextStyle(fontSize: 10)),
           ],
         ),
@@ -299,11 +305,11 @@ pw.Widget _footer(ChallanData data) {
                 fontSize: 8,
                 color: PdfColors.grey700,
                 fontWeight: pw.FontWeight.bold)),
-        pw.Text(remarks, style: const pw.TextStyle(fontSize: 9)),
+        pw.Text(Fmt.pdfSafe(remarks), style: const pw.TextStyle(fontSize: 9)),
         pw.SizedBox(height: 14),
       ],
       if (note.isNotEmpty) ...[
-        pw.Text(note,
+        pw.Text(Fmt.pdfSafe(note),
             style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
         pw.SizedBox(height: 14),
       ],

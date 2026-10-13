@@ -320,10 +320,16 @@ class MastersRepository {
   // Staff
   // ---------------------------------------------------------------------------
 
+  /// The worker roster, from `v_staff_pay`.
+  ///
+  /// Reads the view rather than `profiles` so one query carries the salary,
+  /// joining date and salary day the profile editor now shows. `v_staff_pay`
+  /// maps a profile to exactly one row, so this cannot multiply anybody.
   Future<List<StaffMember>> staff({bool includeInactive = true}) async {
     return _guard(() async {
-      var query = _client.from('profiles').select(
-            'id, name, employee_code, phone, role, active, auth_user_id',
+      var query = _client.from('v_staff_pay').select(
+            'id:profile_id, name:staff_name, employee_code, phone, role, '
+            'active, has_login, joined_on, salary_day, monthly_salary',
           );
       if (!includeInactive) query = query.eq('active', true);
       final rows = await query.order('employee_code');
@@ -331,27 +337,42 @@ class MastersRepository {
     });
   }
 
-  Future<void> saveStaff({
+  /// Creates or updates a worker, and their salary, in one transaction.
+  ///
+  /// A profile write and a salary write done as two calls could leave somebody
+  /// on the roll at the wrong money with nothing to say why, so the database
+  /// does both or neither. The salary is only written when [monthlySalary]
+  /// differs from the one in force — re-saving a profile does not litter the
+  /// salary history with revisions that changed nothing.
+  Future<Map<String, dynamic>> saveStaff({
     String? id,
     required String name,
     required String employeeCode,
     required String role,
     required bool active,
     String? phone,
+    DateTime? joinedOn,
+    int? salaryDay,
+    double? monthlySalary,
+    DateTime? salaryFrom,
   }) async {
     return _guard(() async {
-      final payload = {
-        'name': name.trim(),
-        'employee_code': employeeCode.trim(),
-        'role': role,
-        'active': active,
-        'phone': _nullIfBlank(phone),
-      };
-      if (id == null) {
-        await _client.from('profiles').insert(payload);
-      } else {
-        await _client.from('profiles').update(payload).eq('id', id);
-      }
+      return await _client.rpc<Map<String, dynamic>>(
+        'save_worker_profile',
+        params: {
+          'p_id': id,
+          'p_name': name.trim(),
+          'p_employee_code': employeeCode.trim(),
+          'p_role': role,
+          'p_active': active,
+          'p_phone': _nullIfBlank(phone),
+          'p_joined_on': joinedOn == null ? null : Fmt.isoDate(joinedOn),
+          'p_salary_day': salaryDay,
+          'p_monthly_salary': monthlySalary,
+          'p_salary_from':
+              salaryFrom == null ? null : Fmt.isoDate(salaryFrom),
+        },
+      );
     });
   }
 

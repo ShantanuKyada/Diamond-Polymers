@@ -576,6 +576,211 @@ class DemoStaffRepository implements StaffRepository {
         () => _store.advanceRows.map(StaffAdvance.from).toList(growable: false));
   }
 
+  @override
+  Future<List<SalaryPayment>> paymentsFor(String payslipId) async {
+    return _latency(() => _store.paymentRows
+        .where((r) => r['payslip_id'] == payslipId)
+        .map(SalaryPayment.from)
+        .toList(growable: false));
+  }
+
+  @override
+  Future<List<AdvanceTaken>> advancesTaken({
+    required String profileId,
+    required DateTime month,
+  }) async {
+    return _latency(() => _store.advanceTakenRows
+        .where((r) =>
+            r['profile_id'] == profileId && r['period_month'] == _month(month))
+        .map(AdvanceTaken.from)
+        .toList(growable: false));
+  }
+
+  @override
+  Future<Map<String, dynamic>> recordPayment({
+    required String payslipId,
+    required double amount,
+    required String clientRef,
+    DateTime? paidOn,
+    String? method,
+    String? remarks,
+  }) async {
+    return _latency(() {
+      // Idempotency before validation, so retrying a payment that already
+      // landed answers rather than complains.
+      final already = _store.paymentRows
+          .firstWhere((r) => r['client_ref'] == clientRef, orElse: () => {});
+      if (already.isNotEmpty) {
+        return {
+          'id': already['id'],
+          'duplicate': true,
+          'paid': _paid(payslipId),
+        };
+      }
+
+      if (amount <= 0) {
+        throw const AppException(
+          kind: AppErrorKind.validation,
+          message: 'The payment must be greater than zero.',
+        );
+      }
+
+      final slip = _store.payslipRows
+          .firstWhere((r) => r['id'] == payslipId, orElse: () => {});
+      if (slip.isEmpty) {
+        throw const AppException(
+          kind: AppErrorKind.validation,
+          message: 'That payslip does not exist.',
+        );
+      }
+
+      if (slip['period_status'] != 'FINALISED') {
+        throw AppException(
+          kind: AppErrorKind.validation,
+          message: 'Payroll for '
+              '${Fmt.monthYear(DateTime.parse(slip['period_month'] as String))} '
+              'has not been finalised yet, so there is nothing agreed to pay '
+              'against. Finalise the month first.',
+        );
+      }
+
+      final net = slip['net_payable'] as double;
+      final paid = _paid(payslipId);
+      final left = net - paid;
+
+      if (amount > left) {
+        throw AppException(
+          kind: AppErrorKind.insufficientStock,
+          message: '${slip['staff_name']} (${slip['employee_code']}) has '
+              '${Fmt.money(left)} left on '
+              '${Fmt.monthYear(DateTime.parse(slip['period_month'] as String))}, '
+              'and this payment is ${Fmt.money(amount)}. Pay the remainder or '
+              'less.',
+        );
+      }
+
+      final id = _store.nextId('spay');
+      _store.paymentRows.add({
+        'id': id,
+        'payslip_id': payslipId,
+        'profile_id': slip['profile_id'],
+        'employee_code': slip['employee_code'],
+        'staff_name': slip['staff_name'],
+        'period_month': slip['period_month'],
+        'amount': amount,
+        'paid_on': Fmt.isoDate(paidOn ?? DateTime.now()),
+        'method': method,
+        'reverses': null,
+        'is_reversal': false,
+        'is_reversed': false,
+        'client_ref': clientRef,
+        'remarks': remarks,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+
+      _resettle(payslipId);
+
+      return {
+        'id': id,
+        'duplicate': false,
+        'profile_id': slip['profile_id'],
+        'net_payable': net,
+        'paid': paid + amount,
+        'outstanding': net - paid - amount,
+        'settled': net - paid - amount <= 0,
+      };
+    });
+  }
+
+  @override
+  Future<Map<String, dynamic>> reversePayment({
+    required String paymentId,
+    required String clientRef,
+    String? remarks,
+  }) async {
+    return _latency(() {
+      final already = _store.paymentRows
+          .firstWhere((r) => r['client_ref'] == clientRef, orElse: () => {});
+      if (already.isNotEmpty) {
+        return {'id': already['id'], 'duplicate': true};
+      }
+
+      final row = _store.paymentRows
+          .firstWhere((r) => r['id'] == paymentId, orElse: () => {});
+      if (row.isEmpty) {
+        throw const AppException(
+          kind: AppErrorKind.validation,
+          message: 'That payment does not exist.',
+        );
+      }
+      if ((row['amount'] as double) < 0) {
+        throw const AppException(
+          kind: AppErrorKind.validation,
+          message: 'That row is itself a reversal and cannot be reversed again.',
+        );
+      }
+      if (_store.paymentRows.any((r) => r['reverses'] == paymentId)) {
+        throw const AppException(
+          kind: AppErrorKind.validation,
+          message: 'That payment has already been reversed.',
+        );
+      }
+
+      final id = _store.nextId('spay');
+      _store.paymentRows.add({
+        ...row,
+        'id': id,
+        'amount': -(row['amount'] as double),
+        'paid_on': Fmt.isoDate(DateTime.now()),
+        'reverses': paymentId,
+        'is_reversal': true,
+        'is_reversed': false,
+        'client_ref': clientRef,
+        'remarks': remarks ??
+            'Reverses payment of ${Fmt.money(row['amount'] as double)} on '
+                '${Fmt.date(DateTime.parse(row['paid_on'] as String))}',
+        'created_at': DateTime.now().toIso8601String(),
+      });
+      row['is_reversed'] = true;
+
+      _resettle(row['payslip_id'] as String);
+
+      return {
+        'id': id,
+        'duplicate': false,
+        'reversed': paymentId,
+        'amount': -(row['amount'] as double),
+        'paid': _paid(row['payslip_id'] as String),
+      };
+    });
+  }
+
+  double _paid(String payslipId) => _store.paymentRows
+      .where((r) => r['payslip_id'] == payslipId)
+      .fold<double>(0, (sum, r) => sum + (r['amount'] as double));
+
+  /// Recomputes a payslip's paid, outstanding and status, and its month's
+  /// summary. The live app gets these from a view; the demo has to keep them in
+  /// step by hand, and doing it in one place is what stops them drifting.
+  void _resettle(String payslipId) {
+    final slip = _store.payslipRows
+        .firstWhere((r) => r['id'] == payslipId, orElse: () => {});
+    if (slip.isEmpty) return;
+
+    final net = slip['net_payable'] as double;
+    final paid = _paid(payslipId);
+    slip['paid_amount'] = paid;
+    slip['outstanding'] = net - paid;
+    slip['payment_status'] = DemoStore.paymentStatus(
+      periodStatus: slip['period_status'] as String,
+      netPayable: net,
+      paid: paid,
+    );
+
+    final month = DateTime.parse(slip['period_month'] as String);
+    _store.rollUpPeriod(month, slip['period_status'] as String);
+  }
+
   // ---------------------------------------------------------------------------
   // Writes
   //
@@ -716,14 +921,22 @@ class DemoStaffRepository implements StaffRepository {
       final iso = _month(month);
       _requireDraft(month);
 
+      // A draft is rebuilt from scratch. Its payslips cannot carry payments —
+      // paying needs a finalised month — so nothing is lost with them.
+      final rebuilt = _store.payslipRows
+          .where((r) => r['period_month'] == iso)
+          .map((r) => r['id'])
+          .toSet();
       _store.payslipRows.removeWhere((r) => r['period_month'] == iso);
+      _store.paymentRows.removeWhere((r) => rebuilt.contains(r['payslip_id']));
 
       var count = 0;
-      var net = 0.0, salaries = 0.0, deducted = 0.0, recovered = 0.0;
+      var net = 0.0;
 
       for (final person in _store.staffPayRows) {
         final salary = person['monthly_salary'] as double?;
         if (salary == null) continue;
+        if (person['active'] == false) continue;
 
         final deductions = _store.deductionRows
             .where((d) =>
@@ -747,48 +960,20 @@ class DemoStaffRepository implements StaffRepository {
             outstanding < salary - deductions ? outstanding : salary - deductions;
         final payable = salary - deductions - recovery;
 
-        _store.payslipRows.add({
-          'id': _store.nextId('pay'),
-          'profile_id': person['profile_id'],
-          'staff_name': person['staff_name'],
-          'employee_code': person['employee_code'],
-          'role': person['role'],
-          'period_month': iso,
-          'period_status': 'DRAFT',
-          'monthly_salary': salary,
-          'deductions_amount': deductions,
-          'advance_recovered': recovery,
-          'net_payable': payable,
-          'created_at': DateTime.now().toIso8601String(),
-        });
+        _store.addPayslip(
+          month: month,
+          person: person,
+          salary: salary,
+          deductions: deductions,
+          advance: recovery,
+          periodStatus: 'DRAFT',
+        );
 
         count++;
-        salaries += salary;
-        deducted += deductions;
-        recovered += recovery;
         net += payable;
       }
 
-      final period = _store.payrollPeriodRows
-          .firstWhere((r) => r['period_month'] == iso, orElse: () => {});
-      final summary = {
-        'payroll_period_id':
-            period['payroll_period_id'] ?? _store.nextId('period'),
-        'period_month': iso,
-        'status': 'DRAFT',
-        'payslip_count': count,
-        'salary_total': salaries,
-        'deductions_total': deducted,
-        'advance_recovered_total': recovered,
-        'net_total': net,
-        'finalised_at': null,
-      };
-
-      if (period.isEmpty) {
-        _store.payrollPeriodRows.insert(0, summary);
-      } else {
-        period.addAll(summary);
-      }
+      _store.rollUpPeriod(DateTime(month.year, month.month, 1), 'DRAFT');
 
       return {'payslips': count, 'net_total': net, 'status': 'DRAFT'};
     });
@@ -841,6 +1026,13 @@ class DemoStaffRepository implements StaffRepository {
 
       period['status'] = 'FINALISED';
       period['finalised_at'] = DateTime.now().toIso8601String();
+
+      // Finalising is what makes a payslip payable, so every status on the
+      // month moves from DRAFT to where it actually stands.
+      for (final slip
+          in _store.payslipRows.where((r) => r['period_month'] == iso)) {
+        _resettle(slip['id'] as String);
+      }
 
       return {'duplicate': false, 'status': 'FINALISED',
               'recoveries_posted': posted};

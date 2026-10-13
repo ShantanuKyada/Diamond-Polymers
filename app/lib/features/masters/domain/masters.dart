@@ -295,6 +295,9 @@ class StaffMember {
     required this.active,
     required this.hasLogin,
     this.phone,
+    this.joinedOn,
+    this.salaryDay,
+    this.monthlySalary,
   });
 
   final String id;
@@ -305,7 +308,19 @@ class StaffMember {
   final bool hasLogin;
   final String? phone;
 
+  /// The day they joined the factory. Null for staff who were already on the
+  /// roll before the field existed — an invented date would be a false record.
+  final DateTime? joinedOn;
+
+  /// Day of the month they are paid on, 1–31. Null means no fixed day.
+  final int? salaryDay;
+
+  /// The salary in force today, read from `salary_structures`. Null when nobody
+  /// has set one, which is the state that keeps somebody off the payroll.
+  final double? monthlySalary;
+
   bool get isAdmin => role == 'ADMIN';
+  bool get hasSalary => monthlySalary != null;
 
   factory StaffMember.from(Map<String, dynamic> row) => StaffMember(
         id: row['id'] as String,
@@ -313,8 +328,26 @@ class StaffMember {
         employeeCode: row['employee_code'] as String? ?? '',
         role: row['role'] as String? ?? 'OPERATOR',
         active: row['active'] as bool? ?? true,
-        hasLogin: row['auth_user_id'] != null,
+        // `v_staff_pay` reports this as a boolean and does not hand out the
+        // auth id. A row read straight from `profiles` still carries the id, so
+        // both shapes are accepted — and a `false` must not read as "present",
+        // which a bare null check would get wrong.
+        hasLogin: switch (row['has_login']) {
+          final bool b => b,
+          _ => row['auth_user_id'] != null,
+        },
         phone: row['phone'] as String?,
+        joinedOn: DateTime.tryParse(row['joined_on'] as String? ?? ''),
+        salaryDay: switch (row['salary_day']) {
+          final num n => n.toInt(),
+          final String s => int.tryParse(s),
+          _ => null,
+        },
+        monthlySalary: switch (row['monthly_salary']) {
+          final num n => n.toDouble(),
+          final String s => double.tryParse(s),
+          _ => null,
+        },
       );
 
   String get initials {

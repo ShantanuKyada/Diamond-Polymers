@@ -451,3 +451,151 @@ applied: no payslip, salary structure, advance, adjustment or attendance row
 existed, so the module was rebuilt rather than converted.
 
 Migration `0019_simple_payroll.sql`.
+
+---
+
+## A39. Paying the salary — RESOLVED
+
+A38 worked out what a worker is owed. It had no way to record that they were
+actually paid, so every payslip sat at "owed" forever and the factory kept the
+real answer somewhere else. The request that followed asked for worker profiles,
+individual salary dates, per-month tracking of advances and payments, and a PDF
+salary slip.
+
+### The one idea the whole thing rests on
+
+An advance and a salary payment are **the same act** — money handed to a worker
+— separated only by when it happens. The factory described it in exactly those
+terms:
+
+> "Worker A has a monthly salary of ₹5,000 and receives a ₹2,000 advance during
+> the month… Monthly Salary ₹5,000, Advance Paid ₹2,000, Remaining Salary
+> ₹3,000. When the salary date arrives, the admin can record the remaining
+> ₹3,000 payment, completing that month's salary."
+
+So they are not modelled twice. An advance already reduces `net_payable` through
+the advance ledger built in 0012; `salary_payments` records what is handed over
+after that:
+
+```
+monthly salary        5000   salary_structures
+− deductions             0   staff_adjustments
+− advance taken       2000   advance_transactions   (recovered on finalise)
+= net payable         3000   payslips
+− paid                3000   salary_payments        ← new in 0020
+= outstanding            0
+```
+
+**Decision:** one ledger per kind of movement, and every rupee in exactly one of
+them. The brief asked to "support multiple advances and partial salary payments
+without double-counting transactions" — this makes double-counting structurally
+impossible rather than merely unlikely, because there is no second place a
+payment could be recorded.
+
+### Why a payment needs a finalised month
+
+A draft is rebuilt from scratch on every run and its figures move. Paying
+against a number that can still change is how a system ends up paying one
+amount and reporting another, so `record_salary_payment()` refuses a draft and
+says to finalise first.
+
+The foreign key is `ON DELETE RESTRICT` rather than `CASCADE`. `run_payroll()`
+deletes a draft's payslips to rebuild them, and paying needs a finalised month,
+so the restriction never fires in normal use. It is there so that a later change
+breaking that rule fails loudly instead of quietly deleting what somebody was
+paid.
+
+### Payment status
+
+| Status | Means |
+|---|---|
+| `DRAFT` | The month is not agreed yet. Nothing is payable. |
+| `UNPAID` | Agreed and owed in full. |
+| `PARTIAL` | Something has been handed over, not all of it. |
+| `PAID` | Nothing left. |
+
+`DRAFT` is a separate state on purpose. A draft payslip with nothing paid
+against it would otherwise read as `UNPAID` — as a debt — when in fact nobody
+has decided the figure yet.
+
+A salary entirely drawn as advances comes out `PAID` with no payment recorded,
+which is the honest answer: the money went out, just earlier in the month.
+
+### The profile fields payroll needed
+
+`profiles.joined_on` and `profiles.salary_day`, both **nullable**. The staff
+already on the roll have no recorded joining date, and inventing one would put a
+false fact in a record the factory may rely on. A null salary day means "no
+fixed day", which is reported as such rather than defaulted to the 1st.
+
+A salary day is on `profiles`, not `salary_structures`: changing *when* somebody
+is paid is not a pay revision and should not create a new effective-dated row.
+A day past the end of a short month is clamped — somebody paid on the 31st is
+due on the 28th of February — by `app.salary_due_on()`.
+
+### One admin action, one transaction
+
+The profile editor now carries a monthly salary, which lives in an
+effective-dated table rather than on the row. Doing that as two calls from the
+app would let the profile save and the salary fail, leaving a worker on the roll
+at the wrong money with nothing to say why. `save_worker_profile()` does both or
+neither.
+
+It writes a salary row **only when the figure changed**. Re-saving a profile
+must not litter the salary history with revisions that changed nothing, or a
+real raise becomes impossible to find.
+
+### Correcting a payment
+
+A reversal, never an edit: a negative row pointing at what it reverses, with a
+unique index so a double tap cannot reverse twice. The question "what did we pay
+this worker in October" has to keep the same answer a year from now — including
+the wrong payment and its correction. The slip prints both.
+
+### The salary slip
+
+A worker asks "why is this the amount?", so the slip does not print a single net
+figure and stop. It carries the monthly salary, every advance with its date,
+anything deducted, every payment with its date, what is left, and the status.
+Somebody who took ₹2,000 mid-month can see exactly that on the day they were
+paid the rest.
+
+Where the advances listed do not add up to what the payslip recovered — because
+some of it was brought forward from an earlier month — the slip says so rather
+than printing a list that does not reconcile with the figure above it.
+
+### A defect this uncovered
+
+The `pdf` package draws with Helvetica unless a font is bundled, and **Helvetica
+has no rupee sign and no em dash**. It drops what it cannot draw and only warns
+on a console nobody reads.
+
+A salary slip would have printed `5,000.00` with no currency at all. Worse, the
+delivery challan from A36 has been printing `Type  Size` with a hole in it since
+the day it shipped — nobody noticed because the surrounding text still looked
+fine.
+
+`Fmt.pdfSafe()` is now the single place that decides what reaches a page, and
+both documents route every string through it, including the names, addresses and
+notes the factory types. `Fmt.pdfMoney()` spells ₹ as "Rs.", which is what
+Indian salary slips print anyway.
+
+**The residual limit, stated rather than hidden:** a name in Gujarati or
+Devanagari is *dropped*, not printed wrongly. The employee code beside it is
+always ASCII, so the worker on the slip stays identifiable. If the factory ever
+enters non-Latin names, the real fix is bundling a Unicode font — a few hundred
+kilobytes in every APK, which is a decision for them rather than a default.
+
+### In the app
+
+**More → Operators** creates and edits workers, now with a joining date, a
+monthly salary and a salary day. The roster shows each person's salary, or says
+plainly that they have none — which is what keeps somebody off the payroll, so
+it belongs where it can be seen rather than discovered at month end.
+
+**Salary → Pay** gains, per payslip: paid, outstanding, a payment status chip, a
+**Pay** action that records a full or partial payment and shows the history
+behind it, and a **Slip** action that shares or prints the PDF. The month's
+header shows what has been paid and how many workers are settled.
+
+Migration `0020_worker_profiles_and_salary_payments.sql`.
