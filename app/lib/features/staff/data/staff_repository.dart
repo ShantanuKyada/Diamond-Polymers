@@ -866,6 +866,26 @@ final payslipsProvider = FutureProvider<List<Payslip>>((ref) async {
       .payslips(month: ref.watch(payrollMonthProvider));
 });
 
+/// The signed-in worker's own payslips, newest first.
+///
+/// No profile filter and none needed: every payroll read is limited to the
+/// caller's own rows by row level security, and an explicit filter here would
+/// imply the database was not already doing it. Unlike [payslipsProvider] this
+/// is not tied to the month an administrator happens to be looking at — a
+/// worker wants their last few months, not one.
+final myPayslipsProvider = FutureProvider<List<Payslip>>((ref) async {
+  if (ref.watch(currentUserProvider) == null) return const [];
+  return ref.watch(staffRepositoryProvider).payslips();
+});
+
+/// What the signed-in worker has drawn against their salary and not yet repaid.
+final myAdvanceProvider = FutureProvider<StaffPay?>((ref) async {
+  final me = ref.watch(currentUserProvider);
+  if (me == null) return null;
+  final rows = await ref.watch(staffRepositoryProvider).staffPay();
+  return rows.where((r) => r.profileId == me.profileId).firstOrNull;
+});
+
 final deductionsProvider = FutureProvider<List<StaffDeduction>>((ref) async {
   return ref
       .watch(staffRepositoryProvider)

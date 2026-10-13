@@ -536,14 +536,21 @@ class DemoStaffRepository implements StaffRepository {
         .toList(growable: false));
   }
 
+  /// Pay is yours or nobody's, exactly as the policies have it.
+  ///
+  /// The database enforces this and the demo has no row level security, so it
+  /// has to be said here instead. Without it the operator's own pay screen
+  /// would list the whole factory's wages in demo mode — the precise leak those
+  /// policies exist to prevent, in the build that gets shown to people.
+  bool _maySee(Object? profileId) =>
+      _store.signedInIsAdmin || profileId == _store.signedInProfileId;
+
   @override
   Future<List<Payslip>> payslips({DateTime? month}) async {
     return _latency(() {
-      final rows = month == null
-          ? _store.payslipRows
-          : _store.payslipRows
-              .where((r) => r['period_month'] == _month(month))
-              .toList();
+      final rows = _store.payslipRows.where((r) =>
+          _maySee(r['profile_id']) &&
+          (month == null || r['period_month'] == _month(month)));
       return rows.map(Payslip.from).toList(growable: false);
     });
   }
@@ -558,8 +565,10 @@ class DemoStaffRepository implements StaffRepository {
 
   @override
   Future<List<StaffPay>> staffPay() async {
-    return _latency(
-        () => _store.staffPayRows.map(StaffPay.from).toList(growable: false));
+    return _latency(() => _store.staffPayRows
+        .where((r) => _maySee(r['profile_id']))
+        .map(StaffPay.from)
+        .toList(growable: false));
   }
 
   @override
@@ -572,14 +581,16 @@ class DemoStaffRepository implements StaffRepository {
 
   @override
   Future<List<StaffAdvance>> advances() async {
-    return _latency(
-        () => _store.advanceRows.map(StaffAdvance.from).toList(growable: false));
+    return _latency(() => _store.advanceRows
+        .where((r) => _maySee(r['profile_id']))
+        .map(StaffAdvance.from)
+        .toList(growable: false));
   }
 
   @override
   Future<List<SalaryPayment>> paymentsFor(String payslipId) async {
     return _latency(() => _store.paymentRows
-        .where((r) => r['payslip_id'] == payslipId)
+        .where((r) => r['payslip_id'] == payslipId && _maySee(r['profile_id']))
         .map(SalaryPayment.from)
         .toList(growable: false));
   }
@@ -591,7 +602,9 @@ class DemoStaffRepository implements StaffRepository {
   }) async {
     return _latency(() => _store.advanceTakenRows
         .where((r) =>
-            r['profile_id'] == profileId && r['period_month'] == _month(month))
+            r['profile_id'] == profileId &&
+            r['period_month'] == _month(month) &&
+            _maySee(r['profile_id']))
         .map(AdvanceTaken.from)
         .toList(growable: false));
   }

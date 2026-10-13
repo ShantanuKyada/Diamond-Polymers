@@ -409,6 +409,7 @@ void main() {
     testWidgets('a payslip shows four figures and no overtime', (tester) async {
       tallScreen(tester);
       await tester.pumpWidget(demoScope(
+        signedInProfileId: DemoStore.adminId,
         child: MaterialApp(theme: AppTheme.light(), home: const SalaryScreen()),
       ));
       await tester.pumpAndSettle();
@@ -426,6 +427,7 @@ void main() {
     testWidgets('the Salaries tab says what each person is on', (tester) async {
       tallScreen(tester);
       await tester.pumpWidget(demoScope(
+        signedInProfileId: DemoStore.adminId,
         child: MaterialApp(theme: AppTheme.light(), home: const SalaryScreen()),
       ));
       await tester.pumpAndSettle();
@@ -438,7 +440,7 @@ void main() {
     });
 
     test('the demo pays the salary whatever the attendance says', () async {
-      final store = DemoStore();
+      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
       final repo = DemoStaffRepository(store);
       final month = DateTime.now();
 
@@ -458,7 +460,7 @@ void main() {
     });
 
     test('an advance comes off the next payslip, once', () async {
-      final store = DemoStore();
+      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
       final repo = DemoStaffRepository(store);
       final month = DateTime.now();
       final ganesh = (await repo.staffPay())
@@ -490,7 +492,7 @@ void main() {
     });
 
     test('recovery never pushes a payslip below zero', () async {
-      final store = DemoStore();
+      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
       final repo = DemoStaffRepository(store);
       final month = DateTime.now();
       final ganesh = (await repo.staffPay())
@@ -516,7 +518,7 @@ void main() {
     });
 
     test('a finalised month refuses every further change', () async {
-      final store = DemoStore();
+      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
       final repo = DemoStaffRepository(store);
       final month = DateTime.now();
 
@@ -541,7 +543,7 @@ void main() {
     });
 
     test('a deduction bigger than the salary is refused by name', () async {
-      final store = DemoStore();
+      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
       final repo = DemoStaffRepository(store);
       final month = DateTime.now();
       final ravi = (await repo.staffPay())
@@ -574,7 +576,7 @@ void main() {
   // fields payroll needed: a joining date and the day somebody is paid on.
   group('Worker profiles and salary payments (A39)', () {
     test('an admin creates a worker with a salary in one go', () async {
-      final store = DemoStore();
+      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
       final repo = DemoMastersRepository(store);
 
       await repo.saveStaff(
@@ -598,7 +600,7 @@ void main() {
     });
 
     test('a worker ID already in use is refused', () async {
-      final store = DemoStore();
+      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
       final repo = DemoMastersRepository(store);
 
       expect(
@@ -615,7 +617,7 @@ void main() {
 
     test('a joining date in the future, and an impossible salary day, are '
         'refused', () async {
-      final store = DemoStore();
+      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
       final repo = DemoMastersRepository(store);
 
       expect(
@@ -642,7 +644,7 @@ void main() {
 
     test('somebody already on the roll with no joining date still reads',
         () async {
-      final store = DemoStore();
+      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
       final repo = DemoMastersRepository(store);
 
       // Ganesh predates both fields. A screen has to render that, not crash on
@@ -656,7 +658,7 @@ void main() {
 
     // The brief's own worked example, through the demo twin.
     test('5000 salary, 2000 advance, 3000 paid on salary day', () async {
-      final store = DemoStore();
+      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
       final masters = DemoMastersRepository(store);
       final staff = DemoStaffRepository(store);
       final month = DateTime.now();
@@ -712,7 +714,7 @@ void main() {
     });
 
     test('partial payments add up, and a retry does not pay twice', () async {
-      final store = DemoStore();
+      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
       final staff = DemoStaffRepository(store);
       final month = DateTime.now();
 
@@ -752,7 +754,7 @@ void main() {
 
     test('a reversal gives the money back without erasing the record',
         () async {
-      final store = DemoStore();
+      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
       final staff = DemoStaffRepository(store);
       final month = DateTime.now();
 
@@ -788,7 +790,7 @@ void main() {
 
     test('a salary entirely taken as advances reads as paid, not owed',
         () async {
-      final store = DemoStore();
+      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
       final staff = DemoStaffRepository(store);
       final month = DateTime.now();
 
@@ -817,7 +819,7 @@ void main() {
 
     test('the monthly overview never loses money between the two columns',
         () async {
-      final store = DemoStore();
+      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
       final staff = DemoStaffRepository(store);
       final month = DateTime.now();
 
@@ -841,6 +843,7 @@ void main() {
         (tester) async {
       tallScreen(tester);
       await tester.pumpWidget(demoScope(
+        signedInProfileId: DemoStore.adminId,
         child: MaterialApp(theme: AppTheme.light(), home: const SalaryScreen()),
       ));
       await tester.pumpAndSettle();
@@ -861,6 +864,7 @@ void main() {
     testWidgets('a draft month offers no way to pay', (tester) async {
       tallScreen(tester);
       await tester.pumpWidget(demoScope(
+        signedInProfileId: DemoStore.adminId,
         child: MaterialApp(theme: AppTheme.light(), home: const SalaryScreen()),
       ));
       await tester.pumpAndSettle();
@@ -875,6 +879,7 @@ void main() {
         (tester) async {
       tallScreen(tester);
       await tester.pumpWidget(demoScope(
+        signedInProfileId: DemoStore.adminId,
         child:
             MaterialApp(theme: AppTheme.light(), home: const OperatorsScreen()),
       ));
@@ -892,7 +897,7 @@ void main() {
 
     test('the salary slip prints the advances and payments behind the figure',
         () async {
-      final store = DemoStore();
+      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
       final staff = DemoStaffRepository(store);
       final lastMonth = DateTime(DateTime.now().year, DateTime.now().month - 1, 1);
 
@@ -946,7 +951,7 @@ void main() {
       });
 
       test('everything a slip puts on the page is drawable', () async {
-        final store = DemoStore();
+        final store = DemoStore()..signedInProfileId = DemoStore.adminId;
         final staff = DemoStaffRepository(store);
         final lastMonth =
             DateTime(DateTime.now().year, DateTime.now().month - 1, 1);
@@ -973,6 +978,107 @@ void main() {
               reason: '"$text" has a character Helvetica cannot draw');
         }
       });
+    });
+  });
+
+  // A worker could always read their own payslip — the policies allowed it and
+  // there was no screen. This is that screen, and the assertion that matters
+  // most is the negative one: it shows them theirs and nobody else's.
+  group('A worker sees their own pay (A39)', () {
+    test('and nobody else\'s, which the demo now enforces as the policies do',
+        () async {
+      final store = DemoStore()..signedInProfileId = DemoStore.raviId;
+      final staff = DemoStaffRepository(store);
+
+      final mine = await staff.payslips();
+      expect(mine, isNotEmpty);
+      expect(mine.every((p) => p.employeeCode == 'EMP-101'), isTrue,
+          reason: 'saw ${mine.map((p) => p.employeeCode).toSet()}');
+
+      final pay = await staff.staffPay();
+      expect(pay.every((p) => p.employeeCode == 'EMP-101'), isTrue);
+
+      final advances = await staff.advances();
+      expect(advances.every((a) => a.employeeCode == 'EMP-101'), isTrue);
+    });
+
+    test('an administrator still sees everybody', () async {
+      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final staff = DemoStaffRepository(store);
+
+      final all = await staff.payslips();
+      expect(all.map((p) => p.employeeCode).toSet().length, greaterThan(1));
+    });
+
+    test('nobody signed in sees nothing at all', () async {
+      // What the policies do without an auth.uid(), and therefore what the
+      // demo has to do with no signed-in profile.
+      final staff = DemoStaffRepository(DemoStore());
+      expect(await staff.payslips(), isEmpty);
+      expect(await staff.staffPay(), isEmpty);
+    });
+
+    // Driven through sign-in rather than by rendering the screen on its own:
+    // it reads the session to know whose pay to ask for, so a bare render has
+    // nobody to show and would prove nothing.
+    Future<void> openMyPay(WidgetTester tester) async {
+      tallScreen(tester);
+      await signIn(tester, 'ravi@diamondpolymers.local');
+
+      await tester.tap(find.descendant(
+        of: find.byType(NavigationBar),
+        matching: find.text('Profile'),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('My pay'), findsOneWidget,
+          reason: 'an operator should reach their pay from their profile');
+      await tester.tap(find.text('My pay'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('the screen shows the working, not just a figure',
+        (tester) async {
+      await openMyPay(tester);
+
+      // Ravi is part paid in the demo's finalised month and has drawn 3,000.
+      expect(find.text('Advance to repay'), findsOneWidget);
+      expect(find.text('Monthly salary'), findsWidgets);
+      expect(find.text('Advance you took'), findsWidgets);
+      expect(find.text('Your pay'), findsWidgets);
+      expect(find.text('Paid to you'), findsWidgets);
+      expect(find.text('Still to come'), findsWidgets);
+      // Their own slip, which the policies already allow them to produce.
+      expect(find.widgetWithText(TextButton, 'Get slip'), findsWidgets);
+      // And the payment that was made, with its date.
+      expect(find.text('Payments'), findsWidgets);
+    });
+
+    testWidgets('a draft month is not shown as a debt', (tester) async {
+      await openMyPay(tester);
+
+      // The demo's current month is a draft. A figure the office has not
+      // agreed is not a promise, so it is left off entirely rather than shown
+      // as money owed.
+      expect(find.text(Fmt.monthYear(DateTime.now())), findsNothing);
+      expect(find.text('Draft'), findsNothing);
+    });
+
+    testWidgets('an admin does not get the operator pay screen in Profile',
+        (tester) async {
+      tallScreen(tester);
+      await signIn(tester, 'admin@diamondpolymers.local');
+
+      await tester.tap(find.descendant(
+        of: find.byType(NavigationBar),
+        matching: find.text('More'),
+      ));
+      await tester.pumpAndSettle();
+
+      // An administrator has the whole payroll under More → Salary. Offering
+      // them a personal pay screen as well would be two doors to two different
+      // answers.
+      expect(find.text('My pay'), findsNothing);
     });
   });
 

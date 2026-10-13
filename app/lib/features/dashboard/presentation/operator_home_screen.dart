@@ -183,6 +183,13 @@ class _Content extends StatelessWidget {
         const SectionHeader(title: 'Attendance'),
         const _AttendanceSection(),
 
+        // ---- Pay (A39) ------------------------------------------------------
+        // Only when there is something to say. A row that permanently reads
+        // "nothing owed" is one more thing to scroll past on a screen whose
+        // whole point is one tap to record work; the full history is under
+        // Profile either way.
+        const _PayPrompt(),
+
         // ---- Today ----------------------------------------------------------
         const SectionHeader(title: 'Today'),
         Row(
@@ -614,6 +621,40 @@ class _AttendanceRow extends StatelessWidget {
           ],
           StatusChip(status: day.status),
         ],
+      ),
+    );
+  }
+}
+
+/// Says so when the factory owes this worker money, and otherwise says nothing.
+///
+/// Draft months are excluded: a figure the office has not agreed yet is not a
+/// debt, and showing it as one would promise something that can still change.
+class _PayPrompt extends ConsumerWidget {
+  const _PayPrompt();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final payslips = ref.watch(myPayslipsProvider).value;
+    if (payslips == null) return const SizedBox.shrink();
+
+    final owed = payslips
+        .where((p) => !p.isDraft)
+        .fold<double>(0, (sum, p) => sum + p.outstanding);
+    if (owed <= 0) return const SizedBox.shrink();
+
+    final symbol = ref.watch(currencySymbolProvider);
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 16),
+      child: Card(
+        child: ListTile(
+          leading: Icon(Icons.payments_outlined, color: AppTheme.low),
+          title: Text('${Fmt.money(owed, symbol: symbol)} still to come'),
+          subtitle: const Text('Tap to see your payslips'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => context.pushNamed(AppRoute.myPay.name),
+        ),
       ),
     );
   }

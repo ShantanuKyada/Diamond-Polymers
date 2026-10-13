@@ -26,8 +26,27 @@ import 'demo_store.dart';
 /// `authStateChangesProvider` is overridden too — it is the one provider outside
 /// a repository that reaches for the Supabase client, and it would throw before
 /// the first frame without a real one.
-ProviderScope demoScope({required Widget child}) {
-  final store = DemoStore();
+/// [signedInProfileId] names who the demo is acting as, which the payroll twins
+/// read to decide what may be seen — the database does it with row level
+/// security and the demo store has none, so somebody has to say. Left null, the
+/// store behaves as nobody is signed in and the pay screens show nothing, which
+/// is what the policies do without an `auth.uid()`.
+///
+/// Signing in through the demo login screen sets it. A test that renders one
+/// screen on its own has not signed in, so it passes this instead.
+ProviderScope demoScope({
+  required Widget child,
+  String? signedInProfileId,
+  DemoStore? store,
+}) {
+  final demoStore = store ?? DemoStore();
+  if (signedInProfileId != null) {
+    demoStore.signedInProfileId = signedInProfileId;
+  }
+  return _scope(demoStore, child);
+}
+
+ProviderScope _scope(DemoStore store, Widget child) {
 
   return ProviderScope(
     overrides: [

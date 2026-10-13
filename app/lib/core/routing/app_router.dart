@@ -19,6 +19,7 @@ import '../../features/notifications/presentation/notifications_screen.dart';
 import '../../features/production/presentation/production_entry_screen.dart';
 import '../../features/production/presentation/production_history_screens.dart';
 import '../../features/reports/presentation/reports_screen.dart';
+import '../../features/staff/presentation/my_pay_screen.dart';
 import '../../features/staff/presentation/staff_screens.dart';
 import '../../features/wastage/presentation/wastage_screen.dart';
 import '../../features/shell/admin_more_screen.dart';
@@ -174,8 +175,15 @@ final routerProvider = Provider<GoRouter>((ref) {
         ],
       ),
 
+      // ---- Operator, off the bottom bar -------------------------------------
+      // Five tabs is already tight on a 360px phone, so this is reached from
+      // Profile rather than made a sixth.
+      ..._pushedScreens({
+        AppRoute.myPay: (context, state) => const MyPayScreen(),
+      }),
+
       // ---- Admin overflow destinations --------------------------------------
-      ..._adminScreens({
+      ..._pushedScreens({
         AppRoute.mixtureEntry: (context, state) => const MixtureEntryScreen(),
         AppRoute.adminWastage: (context, state) => const WastageScreen(),
         AppRoute.adminReports: (context, state) => const ReportsScreen(),
@@ -184,7 +192,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       }),
 
       // ---- Master data --------------------------------------------------------
-      ..._adminScreens({
+      ..._pushedScreens({
         AppRoute.adminMachines: (context, state) => const MachinesScreen(),
         AppRoute.adminOperators: (context, state) => const OperatorsScreen(),
         AppRoute.adminSettings: (context, state) => const SettingsScreen(),
@@ -199,9 +207,12 @@ final routerProvider = Provider<GoRouter>((ref) {
   );
 });
 
-/// Real admin screens, pushed over the shell on the root navigator so they get
-/// a full-height page rather than sitting inside a bottom-bar tab.
-List<GoRoute> _adminScreens(
+/// Screens pushed over the shell on the root navigator, so they get a
+/// full-height page rather than sitting inside a bottom-bar tab.
+///
+/// Says nothing about who may reach them: that is the path prefix and the
+/// router's guard, which is why an operator screen can be registered here too.
+List<GoRoute> _pushedScreens(
   Map<AppRoute, Widget Function(BuildContext, GoRouterState)> screens,
 ) {
   return [

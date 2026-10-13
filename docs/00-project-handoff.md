@@ -100,8 +100,8 @@ There are no placeholder screens left. `PlaceholderScreen` was deleted.
 | Check | Command | Result |
 |---|---|---|
 | Static analysis | `cd app && flutter analyze` | No issues |
-| Flutter tests | `cd app && flutter test` | **141 passed** |
-| Database tests | `cd supabase/tests && npm install && npm test` | **514 passed** (81 + 100 + 80 + 83 + 102 + 26 + 42) |
+| Flutter tests | `cd app && flutter test` | **147 passed** |
+| Database tests | `cd supabase/tests && npm install && npm test` | **517 passed** (81 + 103 + 80 + 83 + 102 + 26 + 42) |
 | Release APK | `flutter build apk --release …` | Builds locally in ~2–4 min |
 
 One of those suites (`api_coverage.test.mjs`) reads every Supabase call out of

@@ -121,6 +121,10 @@ Each payslip then offers:
 Give advances any time through **Salary → Advances → Give advance**; they come
 off the next payslip automatically.
 
+A worker sees their own side of all this at **Profile → My pay** once they have
+a login, including their own slip to share. Nothing extra to switch on — the
+policies already allowed it.
+
 ## 7. Hand out the new APK
 
 The GitHub Actions workflow builds it. The per-ABI `arm64-v8a` APK is the one

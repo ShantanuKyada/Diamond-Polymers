@@ -246,6 +246,11 @@ which shares or prints the PDF.
 Anybody with no salary set is named on the Salaries tab rather than silently
 left off the payroll. **Punches** is the attendance register.
 
+A worker has their own side of this at **Profile → My pay**: their payslips with
+the working shown, what they have drawn, when each payment arrived, and their own
+slip to share. Draft months are left out — a figure the office has not agreed is
+not a promise. The operator Home shows a row only when something is owed.
+
 **More → Operators** is where a worker is created and edited: name, worker ID,
 phone, joining date, monthly salary, salary day, role and whether they are on
 the roll. The roster shows each person's salary or says plainly that they have
@@ -277,7 +282,7 @@ cd supabase/tests
 npm run test:payroll
 ```
 
-**100 assertions**, including the ones that matter most:
+**103 assertions**, including the ones that matter most:
 
 - a month pays the monthly salary whatever the attendance says
 - the proration and overtime columns, and the settings that drove them, are gone
@@ -306,9 +311,6 @@ against the real schema by `app_contract.test.mjs`. The migration-window SQL in
 
 ## Not built
 
-- **An operator-side payslip screen.** The policies already let a worker read
-  their own payslip and their own payments; there is no screen showing it to
-  them yet, so a slip reaches them on paper or over WhatsApp.
 - **A Unicode font in the PDF.** See the limitation above.
 - **Statutory PF/ESI.** Would be ordinary `DEDUCTION` rows rather than
   calculated, because the rates and ceilings are policy the factory has not

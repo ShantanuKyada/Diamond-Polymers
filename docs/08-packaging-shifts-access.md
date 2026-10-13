@@ -598,4 +598,23 @@ it belongs where it can be seen rather than discovered at month end.
 behind it, and a **Slip** action that shares or prints the PDF. The month's
 header shows what has been paid and how many workers are settled.
 
+**Profile → My pay** is the worker's own side of it, reached from Profile rather
+than made a sixth bottom-bar tab — five is already tight on a 360px phone, and
+pay is a personal thing, which is what that screen is for. It shows the working
+rather than a figure: the month's salary, what they took during the month,
+anything deducted, what is left, and when each payment arrived. They can produce
+their own slip; the policies already allowed it. The operator Home shows a row
+only when something is owed, so a screen whose point is one tap to record work
+does not grow a line that permanently says "nothing".
+
+**Draft months are left out of the worker's view entirely.** A figure the office
+has not agreed yet can still change, and showing it to a worker would read as a
+promise.
+
+That screen exposed a gap in the demo twin rather than in the database: the
+store has no row level security, so in demo mode the operator's pay screen would
+have listed the whole factory's wages — the precise leak those policies exist to
+prevent, in the build that gets handed to people. The payroll twins now apply the
+same rule the policies do, and `demoScope` takes who is acting.
+
 Migration `0020_worker_profiles_and_salary_payments.sql`.

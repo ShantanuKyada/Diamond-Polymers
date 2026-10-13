@@ -47,6 +47,11 @@ enum AppRoute {
   productionEntry('/op/production'),
   myEntries('/op/entries'),
 
+  /// A worker's own pay (A39). Under `/op` so the guard keeps an operator's
+  /// payslips to the operator side; row level security does the rest, and
+  /// already limits every payroll read to the caller's own rows.
+  myPay('/op/pay'),
+
   // ---- Shared -------------------------------------------------------------
   profile('/profile'),
   notifications('/notifications');

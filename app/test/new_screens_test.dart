@@ -27,7 +27,10 @@ void main() {
     addTearDown(tester.view.reset);
 
     await tester.pumpWidget(
+      // Acting as the administrator: these are admin screens, and the payroll
+      // twins now show a caller only what the policies would let them see.
       demoScope(
+        signedInProfileId: DemoStore.adminId,
         child: MaterialApp(theme: AppTheme.light(), home: screen),
       ),
     );

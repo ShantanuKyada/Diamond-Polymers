@@ -755,6 +755,26 @@ await asUser(db, RAVI_AUTH, async () => {
   check('and sees no payment but their own', seen.every((r) => r.profile_id === RAVI),
     `${seen.length} rows`);
 
+  // Everything the operator's own pay screen reads, and its salary slip with
+  // it. A worker can produce their own slip, so each of these has to answer
+  // for them — and answer about nobody else.
+  const myAdv = await all(`select * from v_salary_advances`);
+  check('a worker can read their own advances, and only those',
+    myAdv.length > 0 && myAdv.every((r) => r.profile_id === RAVI),
+    `${myAdv.length} rows, ids ${JSON.stringify([...new Set(myAdv.map(r => r.profile_id))])}`);
+
+  const myPay = await all(`select * from v_payslips order by period_month`);
+  check('and their own payslips, with what is paid and what is left',
+    myPay.length > 0 && myPay.every((r) => r.profile_id === RAVI)
+    && myPay.every((r) => r.payment_status !== null),
+    `${myPay.length} rows`);
+
+  const myRow = await all(`select * from v_staff_pay`);
+  check('and their own salary, salary day and advance balance',
+    myRow.length === 1 && myRow[0].profile_id === RAVI
+    && num(myRow[0].monthly_salary) !== null,
+    JSON.stringify(myRow));
+
   const w = await db.query(`update salary_payments set amount = 99999`);
   check('nor can anyone rewrite a payment by hand', w.affectedRows === 0,
     `${w.affectedRows} rows updated`);

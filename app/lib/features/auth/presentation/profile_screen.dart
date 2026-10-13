@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:go_router/go_router.dart';
 import 'package:flutter/services.dart';
 
 import '../../../core/config/app_config.dart';
 import '../../../core/error/app_exception.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/routing/routes.dart';
 import '../../../core/widgets/panels.dart';
 import '../../dashboard/data/dashboard_repository.dart';
 import '../domain/app_user.dart';
@@ -123,6 +125,26 @@ class ProfileScreen extends ConsumerWidget {
               ],
             ),
           ),
+
+          // A39. Reached from here rather than made a sixth tab: five is
+          // already tight on a 360px phone, and pay is a personal thing, which
+          // is what this screen is for. An administrator has the whole payroll
+          // under More → Salary instead.
+          if (!user.isAdmin) ...[
+            const SectionHeader(title: 'Pay'),
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.payments_outlined),
+                title: const Text('My pay'),
+                subtitle: const Text(
+                  'Your payslips, what you have taken, and what is still to '
+                  'come',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.goNamed(AppRoute.myPay.name),
+              ),
+            ),
+          ],
 
           const SectionHeader(title: 'About'),
           Card(
