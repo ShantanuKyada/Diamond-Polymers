@@ -60,6 +60,24 @@ function statementFrom(src, start) {
   return src.slice(start);
 }
 
+// One entry in a PostgREST select list, reduced to the column the database
+// must actually have — or null when it is not a column at all.
+//
+// Three things turn up in these lists besides plain column names:
+//   alias:source                  a rename; the database needs `source`
+//   other_table!key(a, b)         an embed; checked separately, by the embed
+//                                 section of app_contract.test.mjs
+//   $_core / ${something}          Dart string interpolation, resolved at
+//                                 runtime and meaningless here
+function selectedColumn(raw) {
+  const entry = raw.trim();
+  if (!entry || entry.startsWith('$')) return null;
+  if (entry.includes('(')) return null;
+  const source = entry.includes(':') ? entry.split(':', 2)[1] : entry;
+  const name = source.trim();
+  return /^[a-z_][a-z_0-9]*$/.test(name) ? name : null;
+}
+
 const rpcCalls = [];
 const relationCalls = [];
 
@@ -85,11 +103,9 @@ for (const file of repoFiles) {
 
     for (const s of text.matchAll(/\.select\(\s*'([^']*)'/g)) {
       projected = true;
-      for (const raw of s[1].split(',').map((c) => c.trim()).filter(Boolean)) {
-        // PostgREST renames with `alias:source`. The database has to have the
-        // source; the alias is what the Dart model reads.
-        const [, source] = raw.includes(':') ? raw.split(':', 2) : [null, raw];
-        cols.add(source.trim());
+      for (const raw of s[1].split(',')) {
+        const col = selectedColumn(raw);
+        if (col) cols.add(col);
       }
     }
     for (const f of text.matchAll(/\.(?:eq|neq|gte|lte|gt|lt|order|inFilter|isFilter)\(\s*'([a-z_0-9]+)'/g)) {
@@ -125,9 +141,9 @@ for (const file of repoFiles) {
     let projected = false;
     for (const s of scope.matchAll(/\.select\(\s*'([^']*)'/g)) {
       projected = true;
-      for (const raw of s[1].split(',').map((c) => c.trim()).filter(Boolean)) {
-        const [, source] = raw.includes(':') ? raw.split(':', 2) : [null, raw];
-        cols.add(source.trim());
+      for (const raw of s[1].split(',')) {
+        const col = selectedColumn(raw);
+        if (col) cols.add(col);
       }
     }
     for (const f of scope.matchAll(/\.(?:eq|neq|gte|lte|gt|lt|order)\(\s*'([a-z_0-9]+)'/g)) cols.add(f[1]);

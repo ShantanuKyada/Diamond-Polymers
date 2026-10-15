@@ -11,6 +11,11 @@
 // query that has to change with it.
 import { build, asUser } from './harness.mjs';
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const APP_LIB = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'app', 'lib');
 
 process.on('unhandledRejection', (e) => {
   console.error(`\nUNHANDLED: ${e && e.message ? e.message : e}`);
@@ -335,6 +340,65 @@ await asUser(db, RAVI_AUTH, async () => {
 });
 
 // =============================================================================
+// =============================================================================
+section('PostgREST embeds the app relies on');
+
+// An embed — `.select('..., other_table(cols)')` — is resolved by PostgREST
+// from the foreign keys between the two tables. Where there are two, it cannot
+// choose, and refuses the WHOLE query with PGRST201 rather than guessing.
+//
+// That is invisible until somebody runs it: the SQL is fine, the tables are
+// fine, and the migration verifies clean. It cost a factory administrator their
+// login — profiles embeds employee_types to learn whether somebody runs
+// machines, and employee_types.created_by points back at profiles, so there
+// were two relationships and the sign-in query died.
+//
+// Every embed the app writes is listed here with the key it follows.
+const EMBEDS = [
+  {
+    from: 'profiles',
+    to: 'employee_types',
+    // The disambiguating hint the Dart actually sends, after the '!'.
+    via: 'employee_type_id',
+    where: 'auth_repository.dart — the signed-in person and their role',
+  },
+];
+
+for (const embed of EMBEDS) {
+  const links = (await db.query(`
+    select c.conname, src.relname as src, a.attname as col
+    from pg_constraint c
+    join pg_class src on src.oid = c.conrelid
+    join pg_class tgt on tgt.oid = c.confrelid
+    join unnest(c.conkey) k on true
+    join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k
+    where c.contype = 'f'
+      and ((src.relname = $1 and tgt.relname = $2)
+        or (src.relname = $2 and tgt.relname = $1))`,
+    [embed.from, embed.to])).rows;
+
+  check(`${embed.from} -> ${embed.to}: the key it follows exists`,
+    links.some((l) => l.src === embed.from && l.col === embed.via),
+    `${embed.from}.${embed.via} is not a foreign key to ${embed.to}`);
+
+  // More than one relationship is not an error in itself — it is an error to
+  // embed across it without saying which. The app says which, so this records
+  // that the hint is load-bearing rather than decoration.
+  if (links.length > 1) {
+    check(`${embed.from} -> ${embed.to}: ambiguous, so the app names the key`,
+      true,
+      `${links.length} relationships: ${links.map((l) => l.conname).join(', ')}`);
+  }
+}
+
+// And the Dart really does name it. A future edit that drops the hint would
+// compile, pass every other test, and stop everybody signing in.
+const authSource = readFileSync(
+  join(APP_LIB, 'features/auth/data/auth_repository.dart'), 'utf8');
+check('the session query names the foreign key it follows',
+  authSource.includes('employee_types!employee_type_id'),
+  'auth_repository.dart embeds employee_types without a !key hint');
+
 section('The mixture payload, in the exact shape the app sends');
 
 // p_lines is jsonb. The app builds `[{raw_material_id, quantity}, ...]`, and a

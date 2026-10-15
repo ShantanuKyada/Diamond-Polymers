@@ -109,7 +109,14 @@ class AuthRepository {
       // they get the machine screens at all (A41).
       row = await _client
           .from('profiles')
-          .select('$_core, employee_types(code, name, runs_machines)')
+          // `!employee_type_id` names which foreign key to follow, and is not
+          // optional here. There are TWO relationships between these tables —
+          // profiles.employee_type_id points at a role, and
+          // employee_types.created_by points back at whoever made it — so a
+          // bare `employee_types(...)` is ambiguous and PostgREST refuses the
+          // whole query with PGRST201. That refusal is a failure to sign in.
+          .select('$_core, employee_types!employee_type_id'
+              '(code, name, runs_machines)')
           .eq('auth_user_id', authUserId)
           .maybeSingle();
     } catch (error, stack) {
