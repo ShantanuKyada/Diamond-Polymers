@@ -81,6 +81,48 @@ jobs:
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "key=$KEY" >> "$GITHUB_OUTPUT"
 
+      # Signing, which decides whether the APK can UPDATE an installed one.
+      #
+      # Android refuses to install over an app whose signature has changed, so
+      # every build handed to the factory must carry the same key. The Flutter
+      # template signs release builds with the debug key, and a debug keystore
+      # is generated per machine — on a fresh CI runner that means a new key
+      # every run, and "App not installed as package conflicts with an existing
+      # package" on every update.
+      #
+      # The keystore lives in repository secrets, never in the repository.
+      - name: Set up signing
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No signing key configured - this APK is signed with a throwaway debug key and CANNOT be installed over an existing build. See docs/14-signing-the-apk.md."
+            exit 0
+          fi
+
+          if [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 is set but one of ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS or ANDROID_KEY_PASSWORD is missing. Refusing to fall back to a debug key, which would produce an APK nobody can update to."
+            exit 1
+          fi
+
+          echo "$KEYSTORE_BASE64" | base64 -d > app/android/app/upload-keystore.jks
+
+          # Written, not echoed: these lines carry the passwords.
+          {
+            echo "storeFile=upload-keystore.jks"
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > app/android/key.properties
+
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+          echo "Release key in place."
+
       - name: Install dependencies
         working-directory: app
         run: flutter pub get
@@ -129,7 +171,14 @@ jobs:
 
       - name: Name the artifact
         id: name
-        run: echo "name=diamond-polymers-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+        run: |
+          NAME="diamond-polymers-${GITHUB_SHA::7}"
+          # An APK that cannot update an installed one says so in its own name,
+          # rather than being discovered on somebody's phone.
+          if [ "${{ steps.signing.outputs.signed }}" != "true" ]; then
+            NAME="$NAME-UNSIGNED-fresh-install-only"
+          fi
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
 
       - name: Report the sizes
         working-directory: app/build/app/outputs/flutter-apk
