@@ -939,6 +939,92 @@ void main() {
       expect(find.text('No fixed day'), findsOneWidget);
     });
 
+    // A40: the admin picks what kind of employee this is when they add them,
+    // and the form follows the answer.
+    testWidgets('adding an employee starts by asking what kind they are',
+        (tester) async {
+      tallScreen(tester);
+      await tester.pumpWidget(demoScope(
+        signedInProfileId: DemoStore.adminId,
+        child:
+            MaterialApp(theme: AppTheme.light(), home: const OperatorsScreen()),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(FloatingActionButton));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Employee type *'), findsOneWidget);
+      // Operator is the default, because most of the roll are operators.
+      expect(find.text('Operator'), findsWidgets);
+
+      await tester.tap(find.byType(DropdownButtonFormField<EmployeeType>));
+      await tester.pumpAndSettle();
+
+      for (final type in ['Operator', 'Labourer', 'Office']) {
+        expect(find.text(type), findsWidgets, reason: '$type should be offered');
+      }
+
+      await tester.tap(find.text('Labourer').last);
+      await tester.pumpAndSettle();
+
+      // The helper under the field explains what the choice means, so the
+      // admin is not guessing what a labourer does or does not get.
+      expect(find.textContaining('No machine work to record'), findsOneWidget);
+    });
+
+    testWidgets('and a labourer added through the form really is one',
+        (tester) async {
+      tallScreen(tester);
+      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+
+      await tester.pumpWidget(demoScope(
+        store: store,
+        child:
+            MaterialApp(theme: AppTheme.light(), home: const OperatorsScreen()),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(FloatingActionButton));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(DropdownButtonFormField<EmployeeType>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Labourer').last);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Name *'), 'Naresh Patel');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Worker ID *'), 'EMP-301');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Monthly salary'), '12000');
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      // Bounded pumps rather than pumpAndSettle: saving shows a spinner and
+      // then a SnackBar, and pumpAndSettle waits for every animation to stop —
+      // which between them those two never do.
+      for (var i = 0; i < 20; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+
+      // runAsync, because the demo repositories await a Future.delayed and a
+      // widget test's clock is fake — awaiting one directly here never returns.
+      final all = await tester.runAsync(
+          () async => DemoMastersRepository(store).staff());
+      final added = all!.where((p) => p.employeeCode == 'EMP-301').firstOrNull;
+
+      expect(added, isNotNull,
+          reason: 'roster holds ${all.map((p) => p.employeeCode).toList()}');
+      expect(added!.name, 'Naresh Patel');
+      expect(added.employeeType, EmployeeType.labourer);
+      expect(added.runsMachines, isFalse);
+      // On the payroll like anybody else — that is the whole point of having
+      // them on file.
+      expect(added.monthlySalary, 12000);
+    });
+
     test('the salary slip prints the advances and payments behind the figure',
         () async {
       final store = DemoStore()..signedInProfileId = DemoStore.adminId;
