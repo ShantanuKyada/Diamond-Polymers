@@ -1,3 +1,5 @@
+import 'dart:developer' as developer;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -93,16 +95,52 @@ class AuthRepository {
   /// A missing row is a real condition, not a bug: an account can exist in
   /// Supabase Auth before an administrator links it to a factory profile (A3).
   /// Saying so plainly beats a blank screen.
+  /// The columns a profile has had since the first migration. Everything the
+  /// session strictly needs is in here.
+  static const _core = 'id, auth_user_id, name, employee_code, role, active, '
+      'phone';
+
   Future<AppUser> _loadProfile(String authUserId) async {
-    final row = await _client
-        .from('profiles')
-        // The role is embedded rather than joined by hand: what the session
-        // needs from it is whether this person runs machines, which decides
-        // whether they get the machine screens at all (A41).
-        .select('id, auth_user_id, name, employee_code, role, active, phone, '
-            'employee_types(code, name, runs_machines)')
-        .eq('auth_user_id', authUserId)
-        .maybeSingle();
+    Map<String, dynamic>? row;
+
+    try {
+      // The role is embedded rather than joined by hand: what the session needs
+      // from it is whether this person runs machines, which decides whether
+      // they get the machine screens at all (A41).
+      row = await _client
+          .from('profiles')
+          .select('$_core, employee_types(code, name, runs_machines)')
+          .eq('auth_user_id', authUserId)
+          .maybeSingle();
+    } catch (error, stack) {
+      // The database is older than this build: `employee_types` arrived in
+      // 0022, and asking for a relationship that does not exist fails the whole
+      // query.
+      //
+      // Signing in is the one thing that must not break when the app is ahead
+      // of the database, because the person who would go and apply the
+      // migration is locked out with everybody else. So the role is dropped
+      // and the session is built from the columns that have always existed.
+      //
+      // Whoever this is reads as running machines, which is what every profile
+      // was before roles existed. That shows a labourer two tabs they cannot
+      // use — the database still refuses a run from them, with a message that
+      // says why — which is a far smaller problem than nobody being able to
+      // sign in at all.
+      developer.log(
+        'Falling back to a profile without its role — the database is probably '
+        'older than this build of the app.',
+        name: 'diamond_polymers',
+        error: error,
+        stackTrace: stack,
+      );
+
+      row = await _client
+          .from('profiles')
+          .select(_core)
+          .eq('auth_user_id', authUserId)
+          .maybeSingle();
+    }
 
     if (row == null) {
       // Leaving the orphaned session signed in would trap the user on a screen
