@@ -12,6 +12,7 @@ import '../../inventory/data/inventory_repository.dart';
 import '../../masters/data/masters_repository.dart';
 import '../../masters/domain/masters.dart';
 import '../data/mixture_repository.dart';
+import '../../../core/widgets/responsive.dart';
 
 /// Who is filling this form in.
 ///
@@ -124,33 +125,39 @@ class _MixtureEntryScreenState extends ConsumerState<MixtureEntryScreen> {
     return _isOperator ? _buildOperator(context) : _buildAdmin(context);
   }
 
-  /// The operator's machine is not a choice, so the form waits on their
-  /// assignment rather than on the machine list. Without one the database
-  /// would refuse the batch with DP006 whatever was typed, so the form is not
-  /// offered at all.
+  /// The operator picks the machine they are standing at (A40).
+  ///
+  /// It used to be read off their assignment and shown as a fact, because the
+  /// database refused any other machine with DP006. The factory moves people
+  /// between machines during a shift, so that refusal is gone and this is a
+  /// choice — defaulted to their usual machine, which is almost always the
+  /// right one.
   Widget _buildOperator(BuildContext context) {
-    final dashboard = ref.watch(operatorDashboardProvider);
+    final mine = ref.watch(operatorMachinesProvider);
     final materials = ref.watch(rawMaterialsProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Material Entry')),
-      body: AsyncView<OperatorDashboard>(
-        value: dashboard,
-        onRetry: () => ref.invalidate(operatorDashboardProvider),
-        builder: (context, data) {
-          final assignment = data.assignment;
-          if (assignment == null) {
+      body: PageBody(child: AsyncView<List<OperatorMachine>>(
+        value: mine,
+        onRetry: () => ref.invalidate(operatorMachinesProvider),
+        builder: (context, machines) {
+          if (machines.isEmpty) {
             return const Padding(
               padding: EdgeInsets.all(24),
               child: EmptyView(
-                message: 'You are not assigned to a machine, so material '
-                    'cannot be recorded. Ask an administrator to assign you.',
-                icon: Icons.link_off_rounded,
+                message: 'No machines are running, so material cannot be '
+                    'recorded. Ask an administrator.',
+                icon: Icons.precision_manufacturing_outlined,
               ),
             );
           }
 
-          _machineId = assignment.machineId;
+          // Their usual machine where they have one, otherwise the first on the
+          // list — a choice they can change, not a decision made for them.
+          _machineId ??= (machines.where((m) => m.isMine).firstOrNull ??
+                  machines.first)
+              .machineId;
 
           return AsyncView<List<RawMaterial>>(
             value: materials,
@@ -167,12 +174,17 @@ class _MixtureEntryScreenState extends ConsumerState<MixtureEntryScreen> {
                   ),
                 );
               }
-              return _form(context, const <Machine>[], usable,
-                  fixedAssignment: assignment);
+              return _form(
+                context,
+                machines.map((m) => m.asMachine).toList(growable: false),
+                usable,
+                usualMachineId:
+                    machines.where((m) => m.isMine).firstOrNull?.machineId,
+              );
             },
           );
         },
-      ),
+      )),
     );
   }
 
@@ -182,7 +194,7 @@ class _MixtureEntryScreenState extends ConsumerState<MixtureEntryScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Material Entry')),
-      body: AsyncView<List<Machine>>(
+      body: PageBody(child: AsyncView<List<Machine>>(
         value: machines,
         onRetry: () => ref.invalidate(machinesProvider),
         builder: (context, allMachines) {
@@ -220,7 +232,7 @@ class _MixtureEntryScreenState extends ConsumerState<MixtureEntryScreen> {
             },
           );
         },
-      ),
+      )),
     );
   }
 
@@ -281,15 +293,26 @@ class _MixtureEntryScreenState extends ConsumerState<MixtureEntryScreen> {
     List<Machine> machines,
     List<RawMaterial> materials, {
     OperatorAssignment? fixedAssignment,
+    String? usualMachineId,
   }) {
     final scheme = Theme.of(context).colorScheme;
     final shifts = ref.watch(shiftsProvider).value ?? const <Shift>[];
     final assignments =
         ref.watch(assignmentsProvider).value ?? const <MachineAssignment>[];
 
-    // An operator's shift comes from their assignment when they have a fixed
-    // one; otherwise, as for an admin, from the clock.
-    _shiftId ??= fixedAssignment?.shiftId ?? _currentShiftId(shifts);
+    // An operator's shift comes from the assignment on their usual machine
+    // where there is one; otherwise, as for an admin, from the clock. Either
+    // way it stays editable — somebody covering a different shift says so.
+    _shiftId ??= fixedAssignment?.shiftId ??
+        (usualMachineId == null
+            ? null
+            : ref
+                .watch(operatorMachinesProvider)
+                .value
+                ?.where((m) => m.machineId == usualMachineId)
+                .firstOrNull
+                ?.myShiftId) ??
+        _currentShiftId(shifts);
     final target = fixedAssignment ?? _target(machines, shifts);
 
     return Column(
@@ -308,8 +331,13 @@ class _MixtureEntryScreenState extends ConsumerState<MixtureEntryScreen> {
                 _MachineCard(
                   machines: machines,
                   selectedId: _machineId,
-                  creditedTo:
-                      _machineId == null ? null : _creditedTo(assignments),
+                  // An operator is always credited with their own batch, so
+                  // naming them back would be noise; an admin needs to know
+                  // who the database will credit.
+                  creditedTo: _isOperator || _machineId == null
+                      ? null
+                      : _creditedTo(assignments),
+                  usualMachineId: usualMachineId,
                   entryDate: _entryDate,
                   onSelect: (id) => setState(() => _machineId = id),
                   onPickDate: _pickDate,
@@ -423,10 +451,8 @@ class _MixtureEntryScreenState extends ConsumerState<MixtureEntryScreen> {
   ) async {
     final byId = {for (final m in materials) m.id: m};
 
-    final confirmed = await showModalBottomSheet<bool>(
+    final confirmed = await showAppSheet<bool>(
       context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
       builder: (context) => _ConfirmSheet(
         assignment: assignment,
         entryDate: _entryDate,
@@ -517,11 +543,17 @@ class _MachineCard extends StatelessWidget {
     required this.entryDate,
     required this.onSelect,
     required this.onPickDate,
+    this.usualMachineId,
   });
 
   final List<Machine> machines;
   final String? selectedId;
   final String? creditedTo;
+
+  /// The machine this operator is assigned to, marked so the one they run most
+  /// days is easy to find in a list of all of them (A40). Null for an admin,
+  /// who is not assigned to anything.
+  final String? usualMachineId;
   final DateTime entryDate;
   final ValueChanged<String> onSelect;
   final VoidCallback onPickDate;
@@ -566,7 +598,9 @@ class _MachineCard extends StatelessWidget {
             children: [
               for (final machine in machines)
                 ChoiceChip(
-                  label: Text(machine.name),
+                  label: Text(machine.id == usualMachineId
+                      ? '${machine.name} · yours'
+                      : machine.name),
                   selected: machine.id == selectedId,
                   onSelected: (_) => onSelect(machine.id),
                 ),
@@ -576,10 +610,12 @@ class _MachineCard extends StatelessWidget {
           Text(
             selectedId == null
                 ? 'Choose the machine this batch was loaded into.'
-                : creditedTo == null
-                    ? 'Nobody is assigned to this machine — the batch will be '
-                        'recorded against your account.'
-                    : 'Credited to $creditedTo.',
+                : usualMachineId != null && selectedId != usualMachineId
+                    ? 'Not your usual machine — that is fine, the batch is '
+                        'recorded against the one you picked.'
+                    : creditedTo == null
+                        ? 'The batch will be recorded against your account.'
+                        : 'Credited to $creditedTo.',
             style: theme.textTheme.bodySmall
                 ?.copyWith(color: scheme.onSurfaceVariant),
           ),

@@ -6,6 +6,7 @@ import '../../../core/routing/routes.dart';
 import '../../../core/widgets/state_views.dart';
 import '../data/masters_repository.dart';
 import '../domain/masters.dart';
+import '../../../core/widgets/responsive.dart';
 import 'widgets/master_scaffold.dart';
 
 /// Settings hub (§32).
@@ -28,7 +29,7 @@ class SettingsScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Configuration')),
-      body: RefreshIndicator(
+      body: PageBody(child: RefreshIndicator(
         onRefresh: () async => ref.invalidate(settingsProvider),
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -90,7 +91,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ],
         ),
-      ),
+      )),
     );
   }
 

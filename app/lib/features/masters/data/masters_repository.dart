@@ -329,7 +329,8 @@ class MastersRepository {
     return _guard(() async {
       var query = _client.from('v_staff_pay').select(
             'id:profile_id, name:staff_name, employee_code, phone, role, '
-            'active, has_login, joined_on, salary_day, monthly_salary',
+            'employee_type, active, has_login, joined_on, salary_day, '
+            'monthly_salary',
           );
       if (!includeInactive) query = query.eq('active', true);
       final rows = await query.order('employee_code');
@@ -350,6 +351,7 @@ class MastersRepository {
     required String employeeCode,
     required String role,
     required bool active,
+    EmployeeType employeeType = EmployeeType.operator,
     String? phone,
     DateTime? joinedOn,
     int? salaryDay,
@@ -364,6 +366,7 @@ class MastersRepository {
           'p_name': name.trim(),
           'p_employee_code': employeeCode.trim(),
           'p_role': role,
+          'p_employee_type': employeeType.wire,
           'p_active': active,
           'p_phone': _nullIfBlank(phone),
           'p_joined_on': joinedOn == null ? null : Fmt.isoDate(joinedOn),
@@ -397,6 +400,24 @@ class MastersRepository {
   // ---------------------------------------------------------------------------
   // Machine assignments (§10)
   // ---------------------------------------------------------------------------
+
+  /// Every machine the signed-in operator may work on, which since A40 is all
+  /// of the running ones.
+  ///
+  /// Reads `v_operator_machines` rather than filtering the machine master in
+  /// Dart: the rule about which machines are available lives in the database,
+  /// and a second copy here would be one edit away from disagreeing with it.
+  /// [OperatorMachine.isMine] carries the assignment, which the entry forms use
+  /// as a default rather than a restriction.
+  Future<List<OperatorMachine>> machinesForOperator() async {
+    return _guard(() async {
+      final rows = await _client
+          .from('v_operator_machines')
+          .select()
+          .order('code');
+      return rows.map(OperatorMachine.from).toList(growable: false);
+    });
+  }
 
   Future<List<MachineAssignment>> assignments() async {
     return _guard(() async {
@@ -512,6 +533,13 @@ final rawMaterialsProvider = FutureProvider<List<RawMaterial>>((ref) {
 
 final staffProvider = FutureProvider<List<StaffMember>>((ref) {
   return ref.watch(mastersRepositoryProvider).staff();
+});
+
+/// The machines the signed-in operator may work on (A40). All of the running
+/// ones; the entry forms default to the assigned one where there is one.
+final operatorMachinesProvider =
+    FutureProvider<List<OperatorMachine>>((ref) async {
+  return ref.watch(mastersRepositoryProvider).machinesForOperator();
 });
 
 final assignmentsProvider = FutureProvider<List<MachineAssignment>>((ref) {

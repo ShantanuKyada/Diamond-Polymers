@@ -8,6 +8,7 @@ import '../../../core/error/app_exception.dart';
 import '../../../core/utils/formatters.dart';
 import '../../masters/data/settings_values.dart';
 import '../data/staff_repository.dart';
+import '../../../core/widgets/responsive.dart';
 import 'salary_slip_document.dart';
 
 /// Gathers everything one salary slip needs and hands it to the phone.
@@ -105,9 +106,8 @@ Future<void> showSalarySlipOptions(
   WidgetRef ref,
   Payslip payslip,
 ) async {
-  await showModalBottomSheet<void>(
+  await showAppSheet<void>(
     context: context,
-    useSafeArea: true,
     builder: (sheetContext) => SafeArea(
       child: Column(
         mainAxisSize: MainAxisSize.min,

@@ -11,6 +11,7 @@ import '../../../core/routing/routes.dart';
 import '../../../core/widgets/panels.dart';
 import '../../dashboard/data/dashboard_repository.dart';
 import '../domain/app_user.dart';
+import '../../../core/widgets/responsive.dart';
 import 'session_controller.dart';
 
 class ProfileScreen extends ConsumerWidget {
@@ -37,7 +38,7 @@ class ProfileScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Profile')),
-      body: ListView(
+      body: PageBody(child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
         children: [
           Card(
@@ -87,10 +88,8 @@ class ProfileScreen extends ConsumerWidget {
             title: 'Details',
             trailing: TextButton.icon(
               key: const Key('edit-profile'),
-              onPressed: () => showModalBottomSheet<void>(
+              onPressed: () => showAppSheet<void>(
                 context: context,
-                isScrollControlled: true,
-                useSafeArea: true,
                 builder: (_) => EditProfileSheet(user: user),
               ),
               icon: const Icon(Icons.edit_outlined, size: 18),
@@ -187,7 +186,7 @@ class ProfileScreen extends ConsumerWidget {
             label: const Text('Sign out'),
           ),
         ],
-      ),
+      )),
     );
   }
 }

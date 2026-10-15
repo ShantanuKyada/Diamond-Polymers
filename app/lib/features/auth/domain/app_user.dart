@@ -1,3 +1,5 @@
+import '../../masters/domain/masters.dart';
+
 /// Application roles (A1).
 ///
 /// The specification calls these ADMIN / USER in one place and
@@ -33,6 +35,7 @@ class AppUser {
     required this.employeeCode,
     required this.role,
     required this.active,
+    this.employeeType = EmployeeType.operator,
     this.phone,
   });
 
@@ -42,9 +45,20 @@ class AppUser {
   final String employeeCode;
   final UserRole role;
   final bool active;
+
+  /// What they do, as opposed to [role], which is what they may see (A40). A
+  /// labourer signs in to the same operator app, but has no machine work to
+  /// record.
+  final EmployeeType employeeType;
+
   final String? phone;
 
   bool get isAdmin => role.isAdmin;
+
+  /// Whether the machine screens — Material Entry and Production Entry — mean
+  /// anything for this person. The database refuses a run recorded by anybody
+  /// who is not an operator, so offering the screens would only mislead.
+  bool get runsMachines => employeeType.runsMachines;
 
   factory AppUser.fromProfileRow(Map<String, dynamic> row) {
     return AppUser(
@@ -53,6 +67,7 @@ class AppUser {
       name: row['name'] as String? ?? 'Unknown',
       employeeCode: row['employee_code'] as String? ?? '',
       role: UserRole.fromWire(row['role'] as String?),
+      employeeType: EmployeeType.fromWire(row['employee_type'] as String?),
       active: row['active'] as bool? ?? false,
       phone: row['phone'] as String?,
     );

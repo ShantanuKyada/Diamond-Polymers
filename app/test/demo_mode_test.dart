@@ -22,7 +22,7 @@ void main() {
     testWidgets('signs in as admin and reaches the dashboard', (tester) async {
       // The dashboard is a long ListView, which builds lazily. A taller surface
       // brings the lower sections into the render tree so they can be asserted.
-      tester.view.physicalSize = const Size(1100, 3000);
+      tester.view.physicalSize = const Size(412, 3000);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
 

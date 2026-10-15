@@ -137,8 +137,12 @@ void main() {
       ]));
       await tester.pumpAndSettle();
 
+      // A40: the assignment is the machine they usually run, not the only one
+      // they may. An operator with no assignment reads as "Any machine" rather
+      // than as something missing from their record.
       expect(find.text('M1 · Morning'), findsOneWidget);
-      expect(find.text('No machine'), findsOneWidget);
+      expect(find.text('Any machine'), findsOneWidget);
+      expect(find.text('Operator'), findsNWidgets(2));
     });
 
     testWidgets('marks administrators', (tester) async {

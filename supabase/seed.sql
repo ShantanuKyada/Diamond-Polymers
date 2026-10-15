@@ -155,14 +155,20 @@ on conflict do nothing;
 -- separate step at the bottom of this file.
 -- -----------------------------------------------------------------------------
 
-insert into public.profiles (id, name, employee_code, role, phone) values
-  ('66666666-6666-4666-8666-000000000001', 'Factory Admin',  'EMP-001', 'ADMIN',    null),
-  ('66666666-6666-4666-8666-000000000002', 'Ravi Kumar',     'EMP-101', 'OPERATOR', null),
-  ('66666666-6666-4666-8666-000000000003', 'Suresh Patel',   'EMP-102', 'OPERATOR', null),
-  ('66666666-6666-4666-8666-000000000004', 'Imran Shaikh',   'EMP-103', 'OPERATOR', null),
-  ('66666666-6666-4666-8666-000000000005', 'Ganesh Jadhav',  'EMP-104', 'OPERATOR', null)
+-- `role` is what somebody may see in the app; `employee_type` is what they do
+-- for a living (A40). The administrator is office staff, not a machine
+-- operator, and stating both here keeps the seed from relying on a column
+-- default that would file them as one.
+insert into public.profiles
+  (id, name, employee_code, role, employee_type, phone) values
+  ('66666666-6666-4666-8666-000000000001', 'Factory Admin',  'EMP-001', 'ADMIN',    'OFFICE',   null),
+  ('66666666-6666-4666-8666-000000000002', 'Ravi Kumar',     'EMP-101', 'OPERATOR', 'OPERATOR', null),
+  ('66666666-6666-4666-8666-000000000003', 'Suresh Patel',   'EMP-102', 'OPERATOR', 'OPERATOR', null),
+  ('66666666-6666-4666-8666-000000000004', 'Imran Shaikh',   'EMP-103', 'OPERATOR', 'OPERATOR', null),
+  ('66666666-6666-4666-8666-000000000005', 'Ganesh Jadhav',  'EMP-104', 'OPERATOR', 'OPERATOR', null)
 on conflict (id) do update
-  set name = excluded.name, role = excluded.role;
+  set name = excluded.name, role = excluded.role,
+      employee_type = excluded.employee_type;
 
 insert into public.machine_assignments (id, machine_id, operator_id, shift_id, created_by) values
   ('77777777-7777-4777-8777-000000000001',

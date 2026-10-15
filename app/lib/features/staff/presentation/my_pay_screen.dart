@@ -7,6 +7,7 @@ import '../../../core/widgets/panels.dart';
 import '../../../core/widgets/state_views.dart';
 import '../../masters/data/settings_values.dart';
 import '../data/staff_repository.dart';
+import '../../../core/widgets/responsive.dart';
 import 'salary_slip_action.dart';
 
 /// What a worker is owed and what they have been paid (A39).
@@ -30,7 +31,7 @@ class MyPayScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('My pay')),
-      body: RefreshIndicator(
+      body: PageBody(child: RefreshIndicator(
         onRefresh: () async {
           ref.invalidate(myAdvanceProvider);
           await ref.read(myPayslipsProvider.future);
@@ -43,7 +44,7 @@ class MyPayScreen extends ConsumerWidget {
             advance: advance.value,
           ),
         ),
-      ),
+      )),
     );
   }
 }

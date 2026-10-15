@@ -6,6 +6,7 @@ import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/state_views.dart';
 import '../data/notification_repository.dart';
 import '../domain/app_notification.dart';
+import '../../../core/widgets/responsive.dart';
 
 class NotificationsScreen extends ConsumerWidget {
   const NotificationsScreen({super.key});
@@ -39,7 +40,7 @@ class NotificationsScreen extends ConsumerWidget {
             ),
         ],
       ),
-      body: RefreshIndicator(
+      body: PageBody(child: RefreshIndicator(
         onRefresh: () async => ref.refresh(notificationsProvider.future),
         child: AsyncView<List<AppNotification>>(
           value: snapshot,
@@ -79,7 +80,7 @@ class NotificationsScreen extends ConsumerWidget {
             );
           },
         ),
-      ),
+      )),
     );
   }
 }

@@ -22,7 +22,7 @@ void main() {
   tearDown(() => DemoStore.latency = const Duration(milliseconds: 320));
 
   Future<void> show(WidgetTester tester, Widget screen) async {
-    tester.view.physicalSize = const Size(1100, 2400);
+    tester.view.physicalSize = const Size(412, 2400);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
@@ -50,7 +50,7 @@ void main() {
   testWidgets('My Entries shows the operator their own work', (tester) async {
     // Driven through a real sign-in, because the screen is scoped to whoever
     // is signed in — rendered on its own it would correctly show nothing.
-    tester.view.physicalSize = const Size(1100, 2400);
+    tester.view.physicalSize = const Size(412, 2400);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 

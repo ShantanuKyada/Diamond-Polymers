@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/error/app_exception.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/panels.dart';
@@ -24,10 +25,12 @@ class OperatorsScreen extends ConsumerWidget {
     final assignments = ref.watch(assignmentsProvider).value ?? const [];
 
     return MasterScaffold<StaffMember>(
-      title: 'Operators',
-      subtitle: 'Staff and machine assignment',
+      // Not "Operators" any more: the factory has labourers and office staff on
+      // the same roll, and only operators run machines (A40).
+      title: 'Employees',
+      subtitle: 'Everybody on the roll, and who runs which machine',
       items: staff,
-      addLabel: 'Person',
+      addLabel: 'Employee',
       emptyMessage: 'Nobody on the roll yet.',
       emptyIcon: Icons.badge_outlined,
       onRefresh: () {
@@ -48,11 +51,17 @@ class OperatorsScreen extends ConsumerWidget {
           person: person,
           assignment: assignment,
           onEdit: () => _edit(context, ref, person),
-          onAssign: () => _assign(context, ref, person, assignment),
+          // Machine actions only for the people who run machines. A labourer
+          // offered an "Assign to machine" menu would be offered something the
+          // database refuses.
+          onAssign: person.runsMachines && person.active
+              ? () => _assign(context, ref, person, assignment)
+              : null,
           onLink: () => _link(context, ref, person),
           onEndAssignment: assignment == null
               ? null
               : () => _endAssignment(context, ref, person),
+          onSetActive: () => _setActive(context, ref, person),
         );
       },
     );
@@ -72,6 +81,7 @@ class OperatorsScreen extends ConsumerWidget {
           : Fmt.plainAmount(existing!.monthlySalary!),
     );
     var role = existing?.role ?? UserRole.operator.wire;
+    var type = existing?.employeeType ?? EmployeeType.operator;
     var active = existing?.active ?? true;
     var joinedOn = existing?.joinedOn;
     var salaryDay = existing?.salaryDay;
@@ -80,6 +90,26 @@ class OperatorsScreen extends ConsumerWidget {
       context: context,
       title: existing == null ? 'Add person' : 'Edit ${existing.name}',
       fields: (rebuild) => [
+        // First, because it decides what the rest of the form is for (A40).
+        SheetDropdown<EmployeeType>(
+          label: 'Employee type',
+          value: type,
+          required: true,
+          helper: type.description,
+          items: [
+            for (final t in EmployeeType.values)
+              DropdownMenuItem(value: t, child: Text(t.label)),
+          ],
+          onChanged: (value) {
+            type = value ?? type;
+            // An administrator is office staff, not a machine operator — the
+            // database refuses that combination, so the form does not offer it.
+            if (type == EmployeeType.operator && role == UserRole.admin.wire) {
+              role = UserRole.operator.wire;
+            }
+            rebuild();
+          },
+        ),
         SheetField(
           controller: name,
           label: 'Name',
@@ -136,20 +166,25 @@ class OperatorsScreen extends ConsumerWidget {
           },
         ),
         SheetDropdown<String>(
-          label: 'Role',
+          label: 'App access',
           value: role,
           required: true,
-          helper: 'Administrators see the whole factory. Operators see their '
-              'own machine and their own entries.',
+          helper: 'What they see if they sign in. Separate from the employee '
+              'type above: that is the work they do. Somebody with no login '
+              'is still on the payroll.',
           items: [
             DropdownMenuItem(
               value: UserRole.operator.wire,
-              child: Text('Operator'),
+              child: const Text('Their own work'),
             ),
-            DropdownMenuItem(
-              value: UserRole.admin.wire,
-              child: Text('Administrator'),
-            ),
+            // An administrator is not a machine operator; the database refuses
+            // that pair, so the form does not offer it rather than letting
+            // somebody pick it and be told no.
+            if (type != EmployeeType.operator)
+              DropdownMenuItem(
+                value: UserRole.admin.wire,
+                child: const Text('The whole factory (administrator)'),
+              ),
           ],
           onChanged: (value) {
             role = value ?? role;
@@ -175,6 +210,7 @@ class OperatorsScreen extends ConsumerWidget {
             name: name.text,
             employeeCode: code.text,
             role: role,
+            employeeType: type,
             active: active,
             phone: phone.text,
             joinedOn: joinedOn,
@@ -185,9 +221,78 @@ class OperatorsScreen extends ConsumerWidget {
 
     if (saved) {
       ref.invalidate(staffProvider);
+      ref.invalidate(assignmentsProvider);
       if (context.mounted) {
-        showMessage(context, existing == null ? 'Person added' : 'Saved');
+        showMessage(context, existing == null ? 'Employee added' : 'Saved');
       }
+    }
+  }
+
+  /// Takes somebody off the roll, or puts them back (A40).
+  ///
+  /// Reachable from the roster as its own action, not only as a switch buried
+  /// in the edit form — taking somebody off the roll is a thing an
+  /// administrator does on the day they leave, not an edit to their details.
+  ///
+  /// Nothing is deleted. The database closes their open machine assignment and
+  /// keeps every payslip, entry and advance exactly as it was.
+  Future<void> _setActive(
+    BuildContext context,
+    WidgetRef ref,
+    StaffMember person,
+  ) async {
+    final deactivating = person.active;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(deactivating
+            ? 'Take ${person.name} off the roll?'
+            : 'Put ${person.name} back on the roll?'),
+        content: Text(deactivating
+            ? 'They stop appearing on entry forms and on the payroll, and any '
+                'machine assignment is closed. Nothing is deleted — their '
+                'payslips, entries and advances are all kept.'
+            : 'They appear on entry forms and the payroll again. You can '
+                'assign them to a machine afterwards if they run one.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(deactivating ? 'Take off the roll' : 'Put back'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await ref.read(mastersRepositoryProvider).saveStaff(
+            id: person.id,
+            name: person.name,
+            employeeCode: person.employeeCode,
+            role: person.role,
+            employeeType: person.employeeType,
+            active: !person.active,
+            phone: person.phone,
+            joinedOn: person.joinedOn,
+            salaryDay: person.salaryDay,
+          );
+      ref.invalidate(staffProvider);
+      ref.invalidate(assignmentsProvider);
+      if (context.mounted) {
+        showMessage(
+            context,
+            deactivating
+                ? '${person.name} is off the roll. Their history is kept.'
+                : '${person.name} is back on the roll.');
+      }
+    } on AppException catch (error) {
+      if (context.mounted) showMessage(context, error.message, error: true);
     }
   }
 
@@ -365,14 +470,18 @@ class _StaffTile extends StatelessWidget {
     required this.onAssign,
     required this.onLink,
     required this.onEndAssignment,
+    required this.onSetActive,
   });
 
   final StaffMember person;
   final MachineAssignment? assignment;
   final VoidCallback onEdit;
-  final VoidCallback onAssign;
+
+  /// Null for anybody who does not run machines (A40).
+  final VoidCallback? onAssign;
   final VoidCallback onLink;
   final VoidCallback? onEndAssignment;
+  final VoidCallback onSetActive;
 
   @override
   Widget build(BuildContext context) {
@@ -424,88 +533,55 @@ class _StaffTile extends StatelessWidget {
               spacing: 14,
               runSpacing: 4,
               children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      assignment == null
-                          ? Icons.link_off_rounded
-                          : Icons.precision_manufacturing_outlined,
-                      size: 14,
-                      color: scheme.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      assignment == null
-                          ? 'No machine'
-                          : '${assignment!.machineCode}'
-                              '${assignment!.shiftName == null ? '' : ' · ${assignment!.shiftName}'}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
+                // What they do, and — for an operator — which machine they
+                // usually run. Two short items rather than one long sentence:
+                // the subtitle is a Wrap, and a single string carrying both
+                // overflowed a 360px phone.
+                _Fact(
+                  icon: switch (person.employeeType) {
+                    EmployeeType.operator =>
+                      Icons.precision_manufacturing_outlined,
+                    EmployeeType.labourer => Icons.engineering_outlined,
+                    EmployeeType.office => Icons.business_center_outlined,
+                  },
+                  label: person.employeeType.label,
                 ),
+                // A labourer gets no machine item at all: "No machine" would
+                // read as something missing from their record rather than as
+                // the normal state for somebody who does not run one (A40).
+                if (person.runsMachines)
+                  _Fact(
+                    icon: Icons.settings_outlined,
+                    label: assignment == null
+                        ? 'Any machine'
+                        : '${assignment!.machineCode}'
+                            '${assignment!.shiftName == null ? '' : ' · ${assignment!.shiftName}'}',
+                  ),
                 // A person with no login is a normal, supported state — not an
                 // error — so it reads as information, not a warning.
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      person.hasLogin
-                          ? Icons.lock_outline_rounded
-                          : Icons.no_accounts_outlined,
-                      size: 14,
-                      color: person.hasLogin
-                          ? AppTheme.good
-                          : scheme.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      person.hasLogin ? 'Can sign in' : 'No login',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
+                _Fact(
+                  icon: person.hasLogin
+                      ? Icons.lock_outline_rounded
+                      : Icons.no_accounts_outlined,
+                  label: person.hasLogin ? 'Can sign in' : 'No login',
                 ),
                 // The salary, or the fact that there isn't one — which is what
                 // keeps somebody off the payroll, so it has to be visible from
                 // the roster rather than discovered at month end.
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.payments_outlined,
-                      size: 14,
-                      color: person.hasSalary
-                          ? scheme.onSurfaceVariant
-                          : AppTheme.low,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      person.hasSalary
-                          ? Fmt.money(person.monthlySalary) +
-                              (person.salaryDay == null
-                                  ? ''
-                                  : ' · ${Fmt.ordinalDay(person.salaryDay!)}')
-                          : 'No salary set',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: person.hasSalary ? null : AppTheme.low,
-                            fontWeight:
-                                person.hasSalary ? null : FontWeight.w600,
-                          ),
-                    ),
-                  ],
+                _Fact(
+                  icon: Icons.payments_outlined,
+                  label: person.hasSalary
+                      ? Fmt.money(person.monthlySalary) +
+                          (person.salaryDay == null
+                              ? ''
+                              : ' · ${Fmt.ordinalDay(person.salaryDay!)}')
+                      : 'No salary set',
+                  tone: person.hasSalary ? null : AppTheme.low,
                 ),
                 if (person.joinedOn != null)
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.event_available_outlined,
-                          size: 14, color: scheme.onSurfaceVariant),
-                      const SizedBox(width: 4),
-                      Text(
-                        'Joined ${Fmt.date(person.joinedOn!)}',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
+                  _Fact(
+                    icon: Icons.event_available_outlined,
+                    label: 'Joined ${Fmt.date(person.joinedOn!)}',
                   ),
                 if (!person.active) const StatusChip(status: 'INACTIVE'),
               ],
@@ -516,18 +592,26 @@ class _StaffTile extends StatelessWidget {
       trailing: PopupMenuButton<String>(
         onSelected: (value) => switch (value) {
           'edit' => onEdit(),
-          'assign' => onAssign(),
+          'assign' => onAssign?.call(),
           'link' => onLink(),
           'end' => onEndAssignment?.call(),
+          'active' => onSetActive(),
           _ => null,
         },
         itemBuilder: (context) => [
           const PopupMenuItem(value: 'edit', child: Text('Edit details')),
-          const PopupMenuItem(value: 'assign', child: Text('Assign to machine')),
+          if (onAssign != null)
+            const PopupMenuItem(
+                value: 'assign', child: Text('Usual machine')),
           if (onEndAssignment != null)
-            const PopupMenuItem(value: 'end', child: Text('End assignment')),
+            const PopupMenuItem(value: 'end', child: Text('Clear usual machine')),
           if (!person.hasLogin)
             const PopupMenuItem(value: 'link', child: Text('Attach a login')),
+          const PopupMenuDivider(),
+          PopupMenuItem(
+            value: 'active',
+            child: Text(person.active ? 'Take off the roll' : 'Put back on the roll'),
+          ),
         ],
       ),
       onTap: onEdit,
@@ -643,6 +727,39 @@ class _SalaryDayPicker extends StatelessWidget {
         ],
         onChanged: onChanged,
       ),
+    );
+  }
+}
+
+/// One short icon-and-label fact in a tile's subtitle.
+///
+/// Kept deliberately short and never wrapped in a Flexible: these sit in a
+/// [Wrap], which lays them out on the next line when they do not fit. The
+/// overflow this replaced came from one long string that a Wrap could not
+/// break, which is invisible on a tablet and 83 pixels wrong on a phone.
+class _Fact extends StatelessWidget {
+  const _Fact({required this.icon, required this.label, this.tone});
+
+  final IconData icon;
+  final String label;
+  final Color? tone;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = tone ?? Theme.of(context).colorScheme.onSurfaceVariant;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14, color: color),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: tone,
+                fontWeight: tone == null ? null : FontWeight.w600,
+              ),
+        ),
+      ],
     );
   }
 }

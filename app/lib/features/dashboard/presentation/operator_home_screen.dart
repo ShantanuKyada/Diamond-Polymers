@@ -12,6 +12,7 @@ import '../../masters/data/settings_values.dart';
 import '../../staff/data/staff_repository.dart';
 import '../data/dashboard_repository.dart';
 import '../domain/dashboard_models.dart';
+import '../../../core/widgets/responsive.dart';
 
 /// The operator's home. Deliberately much simpler than the admin dashboard:
 /// production entry is one tap away, and attendance is visible without asking
@@ -42,7 +43,7 @@ class OperatorHomeScreen extends ConsumerWidget {
           ],
         ),
       ),
-      body: RefreshIndicator(
+      body: PageBody(child: RefreshIndicator(
         onRefresh: () async {
           ref.invalidate(myAttendanceProvider);
           return ref.refresh(operatorDashboardProvider.future);
@@ -56,7 +57,7 @@ class OperatorHomeScreen extends ConsumerWidget {
             employeeCode: user?.employeeCode ?? '',
           ),
         ),
-      ),
+      )),
     );
   }
 }
@@ -436,10 +437,16 @@ class _AttendanceSection extends ConsumerWidget {
                                 ?.copyWith(fontWeight: FontWeight.w700),
                           ),
                           const Spacer(),
-                          Text(
-                            '${earlier.where((d) => d.status == 'PRESENT').length} '
-                            'of ${earlier.length} days present',
-                            style: Theme.of(context).textTheme.bodySmall,
+                          // Flexible, so a longer count shortens rather than
+                          // running off the edge of a 412dp phone.
+                          Flexible(
+                            child: Text(
+                              '${earlier.where((d) => d.status == 'PRESENT').length} '
+                              'of ${earlier.length} present',
+                              textAlign: TextAlign.end,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
                           ),
                         ],
                       ),

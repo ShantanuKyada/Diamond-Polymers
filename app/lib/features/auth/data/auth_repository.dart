@@ -96,7 +96,8 @@ class AuthRepository {
   Future<AppUser> _loadProfile(String authUserId) async {
     final row = await _client
         .from('profiles')
-        .select('id, auth_user_id, name, employee_code, role, active, phone')
+        .select('id, auth_user_id, name, employee_code, role, employee_type, '
+            'active, phone')
         .eq('auth_user_id', authUserId)
         .maybeSingle();
 

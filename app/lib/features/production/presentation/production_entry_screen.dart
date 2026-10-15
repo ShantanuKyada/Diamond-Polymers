@@ -11,13 +11,13 @@ import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/state_views.dart';
 import '../../auth/presentation/session_controller.dart';
 import '../../dashboard/data/dashboard_repository.dart';
-import '../../dashboard/domain/dashboard_models.dart';
 import '../../inventory/data/inventory_repository.dart';
 import '../../masters/data/masters_repository.dart';
 import '../../masters/data/settings_values.dart';
 import '../../masters/domain/masters.dart';
 import '../../mixture/data/mixture_repository.dart';
 import '../data/production_repository.dart';
+import '../../../core/widgets/responsive.dart';
 
 /// Production Entry — the operator records what came off the machine (§18,
 /// §19, A27, A28).
@@ -60,6 +60,10 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen> {
   /// on the machine, which is almost always the right one — the operator
   /// charged it minutes ago.
   String? _batchId;
+
+  /// The machine the operator says they are on (A40). Defaulted to the one they
+  /// are assigned to, then theirs to change.
+  String? _machineId;
 
   /// Null until the operator answers — the question is asked, not assumed.
   bool? _wastageUsed;
@@ -127,36 +131,48 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final dashboard = ref.watch(operatorDashboardProvider);
+    // A40: the machine is a choice, not a fact read off an assignment. It used
+    // to be the latter, because the database refused any other machine with
+    // DP006; the factory moves people between machines during a shift, so that
+    // refusal is gone and this asks instead.
+    final mine = ref.watch(operatorMachinesProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Production Entry')),
-      body: AsyncView<OperatorDashboard>(
-        value: dashboard,
-        onRetry: () => ref.invalidate(operatorDashboardProvider),
-        builder: (context, data) {
-          final assignment = data.assignment;
-
-          // Without an assignment the database refuses the entry (DP006), so
-          // the form is not offered rather than offered and then rejected.
-          if (assignment == null) {
+      body: PageBody(child: AsyncView<List<OperatorMachine>>(
+        value: mine,
+        onRetry: () => ref.invalidate(operatorMachinesProvider),
+        builder: (context, machines) {
+          if (machines.isEmpty) {
             return const Padding(
               padding: EdgeInsets.all(24),
               child: EmptyView(
-                message: 'You are not assigned to a machine, so production '
-                    'cannot be recorded. Ask an administrator to assign you.',
-                icon: Icons.link_off_rounded,
+                message: 'No machines are running, so production cannot be '
+                    'recorded. Ask an administrator.',
+                icon: Icons.precision_manufacturing_outlined,
               ),
             );
           }
 
-          return _form(context, assignment);
+          final usual = machines.where((m) => m.isMine).firstOrNull;
+          _machineId ??= (usual ?? machines.first).machineId;
+          final chosen = machines
+                  .where((m) => m.machineId == _machineId)
+                  .firstOrNull ??
+              machines.first;
+
+          return _form(context, machines, chosen, usual);
         },
-      ),
+      )),
     );
   }
 
-  Widget _form(BuildContext context, OperatorAssignment assignment) {
+  Widget _form(
+    BuildContext context,
+    List<OperatorMachine> machines,
+    OperatorMachine chosen,
+    OperatorMachine? usual,
+  ) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
 
@@ -171,10 +187,11 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen> {
         .where((p) => p.active)
         .toList(growable: false);
 
-    // Default to the assigned shift, but only while it is one that is in use.
-    if (_shiftId == null &&
-        shifts.any((s) => s.id == assignment.shiftId)) {
-      _shiftId = assignment.shiftId;
+    // Default to the shift on their own machine's assignment, but only while it
+    // is one that is in use. Editable either way: somebody covering a different
+    // shift says so.
+    if (_shiftId == null && shifts.any((s) => s.id == usual?.myShiftId)) {
+      _shiftId = usual!.myShiftId;
     }
 
     // Type -> size is the product mapping (A24): offer only the sizes this type
@@ -199,17 +216,25 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
             children: [
-              _ContextCard(
-                assignment: assignment,
+              _MachineCard(
+                machines: machines,
+                selectedId: chosen.machineId,
+                usualMachineId: usual?.machineId,
                 date: _entryDate,
                 onPickDate: _pickDate,
+                onSelect: (id) => setState(() {
+                  _machineId = id;
+                  // The batch belongs to a machine, so changing machine drops
+                  // a batch that was charged into a different one.
+                  _batchId = null;
+                }),
               ),
 
               const SizedBox(height: 20),
               const _Label(text: 'Material batch'),
               const SizedBox(height: 8),
               _BatchPicker(
-                machineId: assignment.machineId,
+                machineId: chosen.machineId,
                 selected: _batchId,
                 onSelect: (id) => setState(() => _batchId = id),
               ),
@@ -431,7 +456,7 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen> {
           blocker: _blocker(product),
           busy: _submitting,
           onSubmit: _blocker(product) == null
-              ? () => _review(context, assignment, product!)
+              ? () => _review(context, chosen, product!)
               : null,
         ),
       ],
@@ -452,19 +477,17 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen> {
   /// §44: a confirmation summary before anything is written.
   Future<void> _review(
     BuildContext context,
-    OperatorAssignment assignment,
+    OperatorMachine chosen,
     PipeProduct product,
   ) async {
     final shifts = ref.read(shiftsProvider).value ?? const <Shift>[];
     final shiftName =
         shifts.where((s) => s.id == _shiftId).firstOrNull?.name ?? '—';
 
-    final confirmed = await showModalBottomSheet<bool>(
+    final confirmed = await showAppSheet<bool>(
       context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
       builder: (context) => _ConfirmSheet(
-        machine: assignment.machineName,
+        machine: chosen.label,
         operator: ref.read(currentUserProvider)?.name ?? '—',
         shift: shiftName,
         product: product,
@@ -478,10 +501,10 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen> {
     );
 
     if (confirmed != true || !mounted) return;
-    await _submit(assignment);
+    await _submit(chosen);
   }
 
-  Future<void> _submit(OperatorAssignment assignment) async {
+  Future<void> _submit(OperatorMachine chosen) async {
     setState(() {
       _submitting = true;
       _error = null;
@@ -490,7 +513,7 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen> {
 
     try {
       final result = await ref.read(productionRepositoryProvider).record(
-            machineId: assignment.machineId,
+            machineId: chosen.machineId,
             shiftId: _shiftId!,
             pipeTypeId: _pipeTypeId!,
             pipeSizeId: _pipeSizeId!,
@@ -622,16 +645,27 @@ class _ChoiceRow extends StatelessWidget {
   }
 }
 
-class _ContextCard extends StatelessWidget {
-  const _ContextCard({
-    required this.assignment,
+/// Which machine the operator is on, and which day (A40).
+///
+/// This used to state the machine as a fact, because the operator could only
+/// record for the one they were assigned to. It asks now. Their usual machine
+/// is marked and selected, so the common case is still one glance and no taps.
+class _MachineCard extends StatelessWidget {
+  const _MachineCard({
+    required this.machines,
+    required this.selectedId,
+    required this.usualMachineId,
     required this.date,
     required this.onPickDate,
+    required this.onSelect,
   });
 
-  final OperatorAssignment assignment;
+  final List<OperatorMachine> machines;
+  final String selectedId;
+  final String? usualMachineId;
   final DateTime date;
   final VoidCallback onPickDate;
+  final ValueChanged<String> onSelect;
 
   @override
   Widget build(BuildContext context) {
@@ -641,33 +675,54 @@ class _ContextCard extends StatelessWidget {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.precision_manufacturing_outlined,
-                color: scheme.primary, size: 22),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    assignment.machineName,
-                    style: theme.textTheme.titleMedium
+            Row(
+              children: [
+                Icon(Icons.precision_manufacturing_outlined,
+                    color: scheme.primary, size: 22),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Machine',
+                    style: theme.textTheme.titleSmall
                         ?.copyWith(fontWeight: FontWeight.w700),
                   ),
-                  Text(
-                    'Assigned to you',
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: scheme.onSurfaceVariant),
+                ),
+                TextButton.icon(
+                  onPressed: onPickDate,
+                  icon: const Icon(Icons.event_outlined, size: 18),
+                  label: Text(Fmt.relativeDay(date)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            // A Wrap, not a Row: a factory with eight machines would overflow
+            // a phone, and the number of machines is the factory's to change.
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final machine in machines)
+                  ChoiceChip(
+                    label: Text(machine.machineId == usualMachineId
+                        ? '${machine.name} · yours'
+                        : machine.name),
+                    selected: machine.machineId == selectedId,
+                    onSelected: (_) => onSelect(machine.machineId),
                   ),
-                ],
+              ],
+            ),
+            if (usualMachineId != null && selectedId != usualMachineId) ...[
+              const SizedBox(height: 10),
+              Text(
+                'Not your usual machine — that is fine, the entry is recorded '
+                'against the one you picked.',
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: scheme.onSurfaceVariant),
               ),
-            ),
-            TextButton.icon(
-              onPressed: onPickDate,
-              icon: const Icon(Icons.event_outlined, size: 18),
-              label: Text(Fmt.relativeDay(date)),
-            ),
+            ],
           ],
         ),
       ),

@@ -9,6 +9,7 @@ import '../../../core/widgets/panels.dart';
 import '../../../core/widgets/state_views.dart';
 import '../../masters/data/settings_values.dart';
 import '../data/staff_repository.dart';
+import '../../../core/widgets/responsive.dart';
 import 'salary_slip_action.dart';
 
 /// Punches — who is on site today, and the month behind it (§33).
@@ -29,7 +30,7 @@ class PunchesScreen extends ConsumerWidget {
             tabs: [Tab(text: 'Today'), Tab(text: 'This month')],
           ),
         ),
-        body: TabBarView(
+        body: PageBody(child: TabBarView(
           children: [
             RefreshIndicator(
               onRefresh: () async => ref.refresh(attendanceProvider.future),
@@ -49,7 +50,7 @@ class PunchesScreen extends ConsumerWidget {
               ),
             ),
           ],
-        ),
+        )),
       ),
     );
   }
@@ -815,10 +816,8 @@ Future<void> showPaymentSheet(
   WidgetRef ref,
   Payslip payslip,
 ) {
-  return showModalBottomSheet<void>(
+  return showAppSheet<void>(
     context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
     builder: (context) => Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
@@ -1169,7 +1168,7 @@ class _AdvancesTab extends ConsumerWidget {
     final symbol = ref.watch(currencySymbolProvider);
 
     return Scaffold(
-      body: RefreshIndicator(
+      body: PageBody(child: RefreshIndicator(
         onRefresh: () async => ref.refresh(advancesProvider.future),
         child: AsyncView<List<StaffAdvance>>(
           value: advances,
@@ -1217,7 +1216,7 @@ class _AdvancesTab extends ConsumerWidget {
             );
           },
         ),
-      ),
+      )),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => showAdvanceSheet(context, ref),
         icon: const Icon(Icons.add),
@@ -1322,9 +1321,8 @@ Future<void> showSalarySheet(
   WidgetRef ref, {
   required StaffPay person,
 }) {
-  return showModalBottomSheet<void>(
+  return showAppSheet<void>(
     context: context,
-    isScrollControlled: true,
     builder: (context) => Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
@@ -1494,9 +1492,8 @@ class _SalarySheetState extends ConsumerState<_SalarySheet> {
 
 /// Hand somebody part of their salary before salary day.
 Future<void> showAdvanceSheet(BuildContext context, WidgetRef ref) {
-  return showModalBottomSheet<void>(
+  return showAppSheet<void>(
     context: context,
-    isScrollControlled: true,
     builder: (context) => Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
@@ -1665,9 +1662,8 @@ Future<void> showDeductionSheet(
   required String staffName,
   required DateTime month,
 }) {
-  return showModalBottomSheet<void>(
+  return showAppSheet<void>(
     context: context,
-    isScrollControlled: true,
     builder: (context) => Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,

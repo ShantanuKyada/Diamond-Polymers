@@ -120,6 +120,11 @@ const READS = [
     'amount, remarks, created_at'],
   ['v_payroll_summary',
     'paid_total, outstanding_total, paid_count, partial_count, unpaid_count'],
+  // Employee types and any machine (0021)
+  ['v_staff_pay', 'employee_type'],
+  ['v_operator_machines',
+    'machine_id, code, name, status, is_mine, my_shift_id, my_shift_name'],
+  ['profiles', 'employee_type'],
 ];
 
 await asUser(db, ADMIN_AUTH, async () => {
@@ -187,7 +192,8 @@ const RPCS = [
   ['reverse_salary_payment', ['p_payment_id', 'p_client_ref', 'p_remarks']],
   ['save_worker_profile',
     ['p_id', 'p_name', 'p_employee_code', 'p_role', 'p_active', 'p_phone',
-      'p_joined_on', 'p_salary_day', 'p_monthly_salary', 'p_salary_from']],
+      'p_joined_on', 'p_salary_day', 'p_monthly_salary', 'p_salary_from',
+      'p_employee_type']],
 ];
 
 for (const [name, params] of RPCS) {
@@ -346,14 +352,16 @@ await asUser(db, RAVI_AUTH, async () => {
   check('an operator can record material for their own machine',
     ok && ok.duplicate === false, JSON.stringify(ok));
 
-  // The boundary moved rather than disappeared: another machine is still out.
+  // A40: and for any other machine too. The factory moves people between
+  // machines during a shift, so the assignment is a default on the form rather
+  // than a gate here.
   const other = (await db.query(`select id from machines where code='M2'`)).rows[0].id;
-  const refused = await db.query(
-    `select public.consume_raw_materials($1,$2,$3::jsonb,$4)`,
+  const elsewhere = await db.query(
+    `select public.consume_raw_materials($1,$2,$3::jsonb,$4) as j`,
     [other, shift, JSON.stringify([{ raw_material_id: raizin, quantity: 1 }]),
-      randomUUID()]).then(() => null).catch((e) => e.code);
-  check('but not for a machine they are not assigned to', refused === 'DP006',
-    `got ${refused}`);
+      randomUUID()]).then((r) => r.rows[0].j).catch((e) => e.code);
+  check('and on any other machine, since A40 removed that restriction',
+    elsewhere && elsewhere.duplicate === false, JSON.stringify(elsewhere));
 });
 
 await asUser(db, ADMIN_AUTH, async () => {

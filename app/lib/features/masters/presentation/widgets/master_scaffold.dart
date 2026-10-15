@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/error/app_exception.dart';
 import '../../../../core/widgets/state_views.dart';
+import '../../../../core/widgets/responsive.dart';
 
 /// The list-and-edit pattern every master screen shares.
 ///
@@ -69,7 +70,7 @@ class MasterScaffold<T> extends StatelessWidget {
               icon: const Icon(Icons.add_rounded),
               label: Text(addLabel),
             ),
-      body: RefreshIndicator(
+      body: PageBody(child: RefreshIndicator(
         onRefresh: () async => onRefresh(),
         child: AsyncView<List<T>>(
           value: items,
@@ -102,7 +103,7 @@ class MasterScaffold<T> extends StatelessWidget {
             );
           },
         ),
-      ),
+      )),
     );
   }
 }
@@ -118,10 +119,8 @@ Future<bool> showEditSheet({
   required Future<void> Function() onSave,
   String saveLabel = 'Save',
 }) async {
-  final saved = await showModalBottomSheet<bool>(
-    context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
+  final saved = await showAppSheet<bool>(
+    context: context,
     builder: (context) => _EditSheet(
       title: title,
       fields: fields,

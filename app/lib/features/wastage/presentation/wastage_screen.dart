@@ -13,6 +13,7 @@ import '../../inventory/data/inventory_repository.dart';
 import '../../masters/data/masters_repository.dart';
 import '../../masters/domain/masters.dart';
 import '../data/wastage_repository.dart';
+import '../../../core/widgets/responsive.dart';
 
 /// Wastage — what was lost, and how much of it can be used again (§24, §25).
 class WastageScreen extends ConsumerWidget {
@@ -31,7 +32,7 @@ class WastageScreen extends ConsumerWidget {
         icon: const Icon(Icons.add_rounded),
         label: const Text('Record'),
       ),
-      body: RefreshIndicator(
+      body: PageBody(child: RefreshIndicator(
         onRefresh: () async => ref.refresh(wastageEntriesProvider.future),
         child: AsyncView<List<WastageEntry>>(
           value: entries,
@@ -102,7 +103,7 @@ class WastageScreen extends ConsumerWidget {
             );
           },
         ),
-      ),
+      )),
     );
   }
 }
@@ -244,7 +245,7 @@ class _RecordWastageScreenState extends ConsumerState<RecordWastageScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Record Wastage')),
-      body: Column(
+      body: PageBody(child: Column(
         children: [
           Expanded(
             child: ListView(
@@ -390,7 +391,7 @@ class _RecordWastageScreenState extends ConsumerState<RecordWastageScreen> {
             ),
           ),
         ],
-      ),
+      )),
     );
   }
 

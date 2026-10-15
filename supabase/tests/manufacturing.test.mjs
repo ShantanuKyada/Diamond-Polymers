@@ -49,6 +49,7 @@ const TB = (await one(`select id from pipe_types where code='TB'`)).id;
 const S1 = (await one(`select id from pipe_sizes where code='S1'`)).id;
 const S3 = (await one(`select id from pipe_sizes where code='S3'`)).id;
 const RAVI = (await one(`select id from profiles where employee_code='EMP-101'`)).id;
+const SURESH = (await one(`select id from profiles where employee_code='EMP-102'`)).id;
 const REGRIND_A = (await one(`select id from raw_materials where code='RM-REGRIND-A'`)).id;
 const RAIZIN = (await one(`select id from raw_materials where code='RM-RAIZIN'`)).id;
 
@@ -143,13 +144,38 @@ check('the weight change is recorded in the audit trail', hist.length === 2
 
 await db.query(`update pipe_products set bundle_weight_kg = 18.500 where sku='TA-S1'`);
 
-// M4 has no configured products, so it is unconstrained.
+// A40: an operator may work on any machine. Ravi is assigned to M1; M4 is
+// somebody else's, and he can record on it, because the factory moves people
+// between machines during a shift and the assignment is now a default on the
+// form rather than a gate in the database.
+//
+// M4 has no configured products, so it is unconstrained by DP009.
+let m4Batch;
+await asUser(db, ADMIN_AUTH, async () => {
+  m4Batch = await chargeBatch(db,
+    { machineId: M4, shiftId: SHIFT1, materialId: RAIZIN, quantity: 40 });
+});
+
 await asUser(db, RAVI_AUTH, async () => {
   const state = await sqlstate(() => db.query(
+    `select public.record_production($1,$2,$3,$4,$5,$6, p_mixture_entry_id => $7)`,
+    [M4, SHIFT1, TA, S1, 5, randomUUID(), m4Batch]));
+  check('an operator can record on any machine, not only their own (A40)',
+    state === null, `got ${state}`);
+
+  const credited = await one(
+    `select machine_id, operator_id from production_entries
+     where mixture_entry_id = $1`, [m4Batch]);
+  check('and the machine they chose is the one on the entry',
+    credited.machine_id === M4 && credited.operator_id === RAVI,
+    JSON.stringify(credited));
+
+  // What is still refused: recording somebody else's work.
+  const notMine = await sqlstate(() => db.query(
     `select public.record_production($1,$2,$3,$4,$5,$6,$7)`,
-    [M4, SHIFT1, TA, S1, 5, randomUUID(), RAVI]));
-  check('an operator cannot record on a machine they are not assigned to',
-    state === 'DP006', `got ${state}`);
+    [M4, SHIFT1, TA, S1, 1, randomUUID(), SURESH]));
+  check('but still not on another operator\'s behalf',
+    notMine === 'DP004', `got ${notMine}`);
 });
 
 // M1 is configured for all 8 products; restrict it and try again.

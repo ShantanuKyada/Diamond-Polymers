@@ -11,6 +11,7 @@ import '../../auth/presentation/session_controller.dart';
 import '../../masters/data/settings_values.dart';
 import '../data/dashboard_repository.dart';
 import '../domain/dashboard_models.dart';
+import '../../../core/widgets/responsive.dart';
 
 /// "What is happening in the factory today?" (§27)
 class AdminDashboardScreen extends ConsumerWidget {
@@ -50,7 +51,7 @@ class AdminDashboardScreen extends ConsumerWidget {
           const SizedBox(width: 4),
         ],
       ),
-      body: RefreshIndicator(
+      body: PageBody(child: RefreshIndicator(
         onRefresh: () async => ref.refresh(adminDashboardProvider.future),
         child: AsyncView<AdminDashboard>(
           value: snapshot,
@@ -62,7 +63,7 @@ class AdminDashboardScreen extends ConsumerWidget {
             unit: ref.watch(wastageUnitProvider),
           ),
         ),
-      ),
+      )),
     );
   }
 }

@@ -146,6 +146,43 @@ if (Array.isArray(ver20)) {
   }
 }
 
+// =============================================================================
+section('0021 preflight, on a database at 0020');
+
+const at20 = await build({
+  quiet: true,
+  upto: '0020_worker_profiles_and_salary_payments.sql',
+});
+const pre21 = await run(at20, '0021_preflight.sql');
+
+check('the 0021 preflight runs at all', Array.isArray(pre21), pre21.error ?? '');
+if (Array.isArray(pre21)) {
+  check('it confirms 0020 is in place and 0021 is not',
+    pre21.find((r) => r.check.startsWith('01'))?.ok === true &&
+    pre21.find((r) => r.check.startsWith('02'))?.ok === true,
+    JSON.stringify(pre21.filter((r) => r.ok === false).map((r) => r.check)));
+}
+
+await applyMigration(at20, '0021_employee_types_and_any_machine.sql');
+const pre21Again = await run(at20, '0021_preflight.sql');
+check('and still runs once 0021 has been applied',
+  Array.isArray(pre21Again) &&
+  pre21Again.find((r) => r.check.startsWith('02'))?.ok === false,
+  pre21Again.error ?? 'did not report it as applied');
+
+// =============================================================================
+section('0021 verify, on a fully migrated database');
+
+const after21 = await build({ quiet: true });
+const ver21 = await run(after21, '0021_verify.sql');
+
+check('the 0021 verify script runs at all', Array.isArray(ver21), ver21.error ?? '');
+if (Array.isArray(ver21)) {
+  for (const row of ver21) {
+    check(row.check, row.ok === true, row.detail ?? '');
+  }
+}
+
 console.log(`\n${'═'.repeat(64)}`);
 console.log(`  ${pass} passed, ${fail} failed`);
 if (fail) { console.log('\n  Failures:'); failures.forEach((f) => console.log(`   - ${f}`)); }

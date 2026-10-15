@@ -13,6 +13,7 @@ import '../../masters/domain/masters.dart';
 import '../../production/data/production_repository.dart';
 import '../../production/domain/production.dart';
 import '../../wastage/data/wastage_repository.dart';
+import '../../../core/widgets/responsive.dart';
 
 /// Reports (§49).
 ///
@@ -52,7 +53,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Reports')),
-      body: RefreshIndicator(
+      body: PageBody(child: RefreshIndicator(
         onRefresh: () async {
           ref.invalidate(productionRecordsProvider(filter));
           ref.invalidate(dispatchesProvider);
@@ -81,7 +82,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             const _ClosingStockSection(),
           ],
         ),
-      ),
+      )),
     );
   }
 }
@@ -94,7 +95,11 @@ class _PeriodPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    // A Wrap rather than a Row: three chips plus their padding are wider than
+    // a 412dp phone, and a fourth range would make it worse.
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
       children: [
         for (final (days, label) in const [
           (0, 'Today'),
@@ -102,7 +107,7 @@ class _PeriodPicker extends StatelessWidget {
           (30, '30 days'),
         ])
           Padding(
-            padding: const EdgeInsets.only(right: 8),
+            padding: EdgeInsets.zero,
             child: ChoiceChip(
               label: Text(label),
               selected: selected == days,

@@ -75,10 +75,25 @@ class DemoAuthRepository implements AuthRepository {
 
       // Any address containing "admin" opens the admin app; anything else
       // signs in as the operator on Machine 1. Stated on the login screen.
+      //
+      // Before falling back to that, the local part is matched against first
+      // names, so the demo can be opened as a specific person — a labourer, for
+      // one, whose app has no machine screens at all (A40). Without it every
+      // non-admin address lands on the same operator and a whole employee type
+      // is unreachable in demo mode.
+      final local = address.split('@').first;
+      final byName = _store.staff.where((p) {
+        final first =
+            (p['name'] as String).trim().split(' ').first.toLowerCase();
+        return first.isNotEmpty && local.contains(first);
+      });
+
       final wantsAdmin = address.contains('admin');
-      final row = _store.staff.firstWhere(
-        (p) => p['role'] == (wantsAdmin ? 'ADMIN' : 'OPERATOR'),
-      );
+      final row = byName.isNotEmpty
+          ? byName.first
+          : _store.staff.firstWhere(
+              (p) => p['role'] == (wantsAdmin ? 'ADMIN' : 'OPERATOR'),
+            );
 
       _signedIn = AppUser.fromProfileRow({...row, 'auth_user_id': 'demo'});
       _store.signedInProfileId = _signedIn!.profileId;
@@ -908,6 +923,7 @@ class DemoMastersRepository implements MastersRepository {
     required String employeeCode,
     required String role,
     required bool active,
+    EmployeeType employeeType = EmployeeType.operator,
     String? phone,
     DateTime? joinedOn,
     int? salaryDay,
@@ -948,11 +964,21 @@ class DemoMastersRepository implements MastersRepository {
           message: 'Worker ID $code is already used by somebody else.',
         );
       }
+      // The database refuses this pair, so the demo has to as well (A40).
+      if (role == 'ADMIN' && employeeType == EmployeeType.operator) {
+        throw const AppException(
+          kind: AppErrorKind.validation,
+          message: 'An administrator cannot also be a machine operator. '
+              'Choose Office, or make them an operator instead of an '
+              'administrator.',
+        );
+      }
 
       _upsert(_store.staff, id, {
         'name': name.trim(),
         'employee_code': code,
         'role': role,
+        'employee_type': employeeType.wire,
         'active': active,
         'phone': (phone ?? '').trim().isEmpty ? null : phone!.trim(),
         'joined_on': joinedOn == null ? null : Fmt.isoDate(joinedOn),
@@ -1019,6 +1045,35 @@ class DemoMastersRepository implements MastersRepository {
         message: 'Linking a login needs the live backend. '
             'This is demo mode, so nothing was changed.',
       );
+    });
+  }
+
+  /// Every running machine, with the signed-in operator's own marked — the
+  /// same answer `v_operator_machines` gives (A40). Deactivating somebody or
+  /// moving them off operator work closes their assignment in the database
+  /// through a trigger; the demo does it where the profile is written.
+  @override
+  Future<List<OperatorMachine>> machinesForOperator() async {
+    return _latency(() {
+      final me = _store.signedInProfileId;
+      return _store.machines
+          .where((m) => m['active'] == true && m['status'] != 'INACTIVE')
+          .map((m) {
+            final mine = _store.assignments.firstWhere(
+                (a) => a['machine_id'] == m['id'] && a['operator_id'] == me,
+                orElse: () => {});
+            return OperatorMachine.from({
+              'machine_id': m['id'],
+              'code': m['code'],
+              'name': m['name'],
+              'status': m['status'],
+              'is_mine': mine.isNotEmpty,
+              'my_shift_id': mine['shift_id'],
+              'my_shift_name': mine['shift_name'],
+            });
+          })
+          .toList(growable: false)
+        ..sort((a, b) => a.code.compareTo(b.code));
     });
   }
 

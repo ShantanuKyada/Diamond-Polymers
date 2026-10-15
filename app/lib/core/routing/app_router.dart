@@ -75,27 +75,27 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state, navigationShell) => AppShell(
           navigationShell: navigationShell,
           destinations: const [
-            NavigationDestination(
+            ShellDestination(
               icon: Icon(Icons.dashboard_outlined),
               selectedIcon: Icon(Icons.dashboard_rounded),
               label: 'Dashboard',
             ),
-            NavigationDestination(
+            ShellDestination(
               icon: Icon(Icons.inventory_outlined),
               selectedIcon: Icon(Icons.inventory_rounded),
               label: 'Inventory',
             ),
-            NavigationDestination(
+            ShellDestination(
               icon: Icon(Icons.factory_outlined),
               selectedIcon: Icon(Icons.factory_rounded),
               label: 'Production',
             ),
-            NavigationDestination(
+            ShellDestination(
               icon: Icon(Icons.local_shipping_outlined),
               selectedIcon: Icon(Icons.local_shipping_rounded),
               label: 'Dispatch',
             ),
-            NavigationDestination(
+            ShellDestination(
               icon: Icon(Icons.more_horiz_rounded),
               label: 'More',
             ),
@@ -127,26 +127,29 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state, navigationShell) => AppShell(
           navigationShell: navigationShell,
           destinations: const [
-            NavigationDestination(
+            ShellDestination(
               icon: Icon(Icons.home_outlined),
               selectedIcon: Icon(Icons.home_rounded),
               label: 'Home',
             ),
             // Material before Production, because that is the order the work
             // happens in: material goes into the machine, product comes out.
-            NavigationDestination(
+            // Both are hidden from anybody who does not run machines (A40).
+            ShellDestination(
               icon: Icon(Icons.science_outlined),
               label: 'Material',
+              requiresMachineWork: true,
             ),
-            NavigationDestination(
+            ShellDestination(
               icon: Icon(Icons.add_box_outlined),
               label: 'Production',
+              requiresMachineWork: true,
             ),
-            NavigationDestination(
+            ShellDestination(
               icon: Icon(Icons.receipt_long_outlined),
               label: 'My Entries',
             ),
-            NavigationDestination(
+            ShellDestination(
               icon: Icon(Icons.person_outline_rounded),
               label: 'Profile',
             ),

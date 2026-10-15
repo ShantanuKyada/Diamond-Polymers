@@ -402,13 +402,16 @@ await asUser(db, RAVI, async () => {
   check('and the batch is credited to them, on that machine',
     e.operator_id === RAVI_ID && e.machine_id === M1);
 
-  // The two things the old admin-only rule was protecting against are still
-  // refused — they are just refused precisely now, rather than wholesale.
+  // A40 removed the machine restriction: the operator works where the work is,
+  // and reports which machine rather than being granted one. What the old
+  // admin-only rule was really protecting against — recording somebody else's
+  // work — is still refused, below.
   const other = await sqlstate(() => db.query(
     `select public.consume_raw_materials($1,$2,$3::jsonb,$4)`,
     [M2, MORNING, JSON.stringify([{ raw_material_id: RAIZIN, quantity: 1 }]),
       randomUUID()]));
-  check('but not for a machine they are not assigned to', other === 'DP006', `got ${other}`);
+  check('and on a machine they are not assigned to, since A40', other === null,
+    `got ${other}`);
 
   const someoneElse = await sqlstate(() => db.query(
     `select public.consume_raw_materials($1,$2,$3::jsonb,$4,$5)`,

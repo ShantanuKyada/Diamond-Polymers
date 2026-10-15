@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/routing/routes.dart';
 import '../../core/widgets/panels.dart';
 import '../auth/presentation/session_controller.dart';
+import '../../core/widgets/responsive.dart';
 
 /// The overflow section of the admin navigation (§34). A bottom bar holds five
 /// destinations comfortably; everything else lives here.
@@ -17,7 +18,7 @@ class AdminMoreScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('More')),
-      body: ListView(
+      body: PageBody(child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
           Card(
@@ -116,7 +117,7 @@ class AdminMoreScreen extends ConsumerWidget {
             label: const Text('Sign out'),
           ),
         ],
-      ),
+      )),
     );
   }
 }

@@ -7,6 +7,7 @@ import 'package:printing/printing.dart';
 import '../../../core/utils/formatters.dart';
 import '../../masters/data/settings_values.dart';
 import '../data/dispatch_repository.dart';
+import '../../../core/widgets/responsive.dart';
 import 'challan_document.dart';
 
 /// Assembles a [ChallanData] for a dispatch from the factory's own settings.
@@ -104,9 +105,8 @@ Future<void> showChallanOptions(
 ) async {
   final data = challanFor(ref, dispatch);
 
-  await showModalBottomSheet<void>(
+  await showAppSheet<void>(
     context: context,
-    useSafeArea: true,
     builder: (sheetContext) => SafeArea(
       child: Column(
         mainAxisSize: MainAxisSize.min,

@@ -10,6 +10,7 @@ import '../../masters/data/masters_repository.dart';
 import '../../masters/domain/masters.dart';
 import '../data/production_repository.dart';
 import '../domain/production.dart';
+import '../../../core/widgets/responsive.dart';
 
 /// My Entries — the operator's own history (§29).
 ///
@@ -25,7 +26,7 @@ class MyEntriesScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('My Entries')),
-      body: RefreshIndicator(
+      body: PageBody(child: RefreshIndicator(
         onRefresh: () async => ref.refresh(myProductionProvider.future),
         child: AsyncView<List<ProductionEntry>>(
           value: entries,
@@ -53,7 +54,7 @@ class MyEntriesScreen extends ConsumerWidget {
             );
           },
         ),
-      ),
+      )),
     );
   }
 }
@@ -91,7 +92,7 @@ class _ProductionRecordsScreenState
           const SizedBox(width: 4),
         ],
       ),
-      body: Column(
+      body: PageBody(child: Column(
         children: [
           if (_filter.activeCount > 0)
             _ActiveFilterBar(
@@ -135,7 +136,7 @@ class _ProductionRecordsScreenState
             ),
           ),
         ],
-      ),
+      )),
     );
   }
 
@@ -144,10 +145,8 @@ class _ProductionRecordsScreenState
     final staff = ref.read(staffProvider).value ?? const <StaffMember>[];
     final types = ref.read(pipeTypesProvider).value ?? const <PipeType>[];
 
-    final result = await showModalBottomSheet<ProductionFilter>(
+    final result = await showAppSheet<ProductionFilter>(
       context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
       builder: (context) => _FilterSheet(
         initial: _filter,
         machines: machines,
@@ -436,9 +435,16 @@ class _Tag extends StatelessWidget {
       children: [
         Icon(icon, size: 13, color: color),
         const SizedBox(width: 3),
-        Text(
-          text,
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(color: color),
+        // Flexible: a Wrap bounds its children to its own width, so a long tag
+        // shortens instead of overflowing. "Wastage used 12.5 kg" was 15px too
+        // wide for a 412dp phone.
+        Flexible(
+          child: Text(
+            text,
+            overflow: TextOverflow.ellipsis,
+            style:
+                Theme.of(context).textTheme.labelSmall?.copyWith(color: color),
+          ),
         ),
       ],
     );

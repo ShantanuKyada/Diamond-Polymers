@@ -376,7 +376,8 @@ class DemoStore {
 
     staff.addAll([
       _person(adminId, 'Factory Admin', 'EMP-001', 'ADMIN',
-          hasLogin: true, joinedOn: '2021-04-01', salaryDay: 1),
+          hasLogin: true, joinedOn: '2021-04-01', salaryDay: 1,
+          employeeType: 'OFFICE'),
       _person(raviId, 'Ravi Kumar', 'EMP-101', 'OPERATOR',
           hasLogin: true, joinedOn: '2023-06-12', salaryDay: 7),
       _person('66666666-6666-4666-8666-000000000003', 'Suresh Patel', 'EMP-102',
@@ -387,6 +388,11 @@ class DemoStore {
       // before either field existed.
       _person('66666666-6666-4666-8666-000000000005', 'Ganesh Jadhav', 'EMP-104',
           'OPERATOR'),
+      // A labourer, so the roster and the payroll are exercised by somebody who
+      // runs no machine at all (A40).
+      _person('66666666-6666-4666-8666-000000000006', 'Lakha Bhai', 'EMP-201',
+          'OPERATOR', joinedOn: '2026-02-01', salaryDay: 7,
+          employeeType: 'LABOURER'),
     ]);
 
     _assign(raviId, machine1, shiftMorning);
@@ -604,6 +610,7 @@ class DemoStore {
     bool hasLogin = false,
     String? joinedOn,
     int? salaryDay,
+    String employeeType = 'OPERATOR',
   }) {
     return {
       'id': id,
@@ -613,6 +620,10 @@ class DemoStore {
       'role': role,
       'active': true,
       'auth_user_id': hasLogin ? 'auth-$employeeCode' : null,
+      // What they do, as opposed to `role`, which is what they see (A40). The
+      // administrator is office staff — filing them as a machine operator
+      // would put them on a machine roster.
+      'employee_type': employeeType,
       // Deliberately not filled in for everybody. One worker with no joining
       // date on record is the real state of the live roster, and the screens
       // have to read sensibly for them rather than only for complete rows.

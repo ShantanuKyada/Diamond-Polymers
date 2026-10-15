@@ -4,6 +4,8 @@ import 'package:diamond_polymers/core/demo/demo_operations.dart';
 import 'package:diamond_polymers/core/demo/demo_repositories.dart';
 import 'package:diamond_polymers/core/demo/demo_store.dart';
 import 'package:diamond_polymers/core/utils/formatters.dart';
+import 'package:diamond_polymers/core/widgets/responsive.dart';
+import 'package:diamond_polymers/features/auth/domain/app_user.dart';
 import 'package:diamond_polymers/core/error/app_exception.dart';
 import 'package:diamond_polymers/core/theme/app_theme.dart';
 import 'package:diamond_polymers/features/auth/presentation/profile_screen.dart';
@@ -29,8 +31,21 @@ void main() {
   setUp(() => DemoStore.latency = Duration.zero);
   tearDown(() => DemoStore.latency = const Duration(milliseconds: 320));
 
+  /// A tall phone: 412dp wide, which is what the floor actually holds, and long
+  /// enough that nothing a test looks for has scrolled out of view.
+  ///
+  /// It used to be 1080 logical pixels, which is a tablet — so every test that
+  /// asserted a bottom bar was unknowingly asserting it on a tablet, and the
+  /// phone layout these tests are named for went unexercised.
   void tallScreen(WidgetTester tester) {
-    tester.view.physicalSize = const Size(1080, 2600);
+    tester.view.physicalSize = const Size(412, 2600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+  }
+
+  /// A tablet in landscape, where navigation moves to a side rail (A40).
+  void tabletScreen(WidgetTester tester) {
+    tester.view.physicalSize = const Size(1280, 900);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
   }
@@ -69,7 +84,11 @@ void main() {
       expect(materialX, lessThan(productionX));
     });
 
-    testWidgets('material entry uses their own machine, not a picker (A34)',
+    // A40 reverses the machine half of A34. The operator still records their
+    // own material — that part stands — but they pick the machine they are
+    // standing at, because the factory moves people between machines during a
+    // shift and the database no longer refuses it.
+    testWidgets('material entry lets them pick any machine, theirs first (A40)',
         (tester) async {
       tallScreen(tester);
       await signIn(tester, 'ravi@diamondpolymers.local');
@@ -79,11 +98,36 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Material Entry'), findsWidgets);
-      // The machine is stated, never chosen: the database would refuse any
-      // other machine with DP006, so offering a choice would only mislead.
-      expect(find.text('Machine 1'), findsOneWidget);
-      expect(find.byType(DropdownButtonFormField<String>), findsOneWidget,
-          reason: 'only the shift is selectable, not the machine');
+
+      // Every running machine is offered, not just his own.
+      final chips = find.byType(ChoiceChip);
+      expect(tester.widgetList(chips).length, greaterThan(1),
+          reason: 'an operator may work on any machine');
+
+      // His own is marked and already selected, so the common case is still no
+      // taps at all.
+      expect(find.text('Machine 1 · yours'), findsOneWidget);
+      final mine = tester.widget<ChoiceChip>(
+          find.widgetWithText(ChoiceChip, 'Machine 1 · yours'));
+      expect(mine.selected, isTrue);
+    });
+
+    testWidgets('and picking another machine says so rather than refusing',
+        (tester) async {
+      tallScreen(tester);
+      await signIn(tester, 'ravi@diamondpolymers.local');
+
+      await tester.tap(find.descendant(
+          of: find.byType(NavigationBar), matching: find.text('Material')));
+      await tester.pumpAndSettle();
+
+      // Any chip that is not his own.
+      final others = find
+          .byWidgetPredicate((w) => w is ChoiceChip && w.selected == false);
+      await tester.tap(others.first);
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Not your usual machine'), findsOneWidget);
     });
 
     testWidgets('home shows attendance in place of material entry (A33)',
@@ -1079,6 +1123,152 @@ void main() {
       // them a personal pay screen as well would be two doors to two different
       // answers.
       expect(find.text('My pay'), findsNothing);
+    });
+  });
+
+  // A40. The app was phone-first and merely *not broken* on a tablet, which is
+  // different from working. These pin both ends: a bottom bar and one column on
+  // a phone, a side rail and a capped content width on a tablet.
+  group('Phones and tablets (A40)', () {
+    testWidgets('a phone keeps the bottom bar', (tester) async {
+      tallScreen(tester);
+      await signIn(tester, 'ravi@diamondpolymers.local');
+
+      expect(find.byType(NavigationBar), findsOneWidget);
+      expect(find.byType(NavigationRail), findsNothing);
+    });
+
+    testWidgets('a tablet moves navigation to a side rail', (tester) async {
+      tabletScreen(tester);
+      await signIn(tester, 'ravi@diamondpolymers.local');
+
+      // On a 10" screen a bottom bar is at the far edge of the glass from the
+      // hands, and costs a row of height the content wants.
+      expect(find.byType(NavigationRail), findsOneWidget);
+      expect(find.byType(NavigationBar), findsNothing);
+
+      // Same destinations, same order — only where they sit changes.
+      final rail = find.byType(NavigationRail);
+      for (final label in ['Home', 'Material', 'Production', 'My Entries',
+        'Profile']) {
+        expect(find.descendant(of: rail, matching: find.text(label)),
+            findsOneWidget, reason: '$label should be on the rail');
+      }
+    });
+
+    testWidgets('the admin app gets a rail on a tablet too', (tester) async {
+      tabletScreen(tester);
+      await signIn(tester, 'admin@diamondpolymers.local');
+
+      expect(find.byType(NavigationRail), findsOneWidget);
+      expect(find.byType(NavigationBar), findsNothing);
+    });
+
+    testWidgets('content does not stretch the width of a tablet',
+        (tester) async {
+      tabletScreen(tester);
+      await signIn(tester, 'admin@diamondpolymers.local');
+
+      // PageBody caps the column. Without it a card runs the full width of the
+      // pane and the line length is unreadable.
+      //
+      // PageBody itself fills the pane — it is the box *inside* it that is
+      // capped and centred, which is what gets measured.
+      final body = find.byType(PageBody);
+      expect(body, findsWidgets);
+      expect(tester.getSize(body.first).width, greaterThan(840),
+          reason: 'the pane is wider than the cap, or this proves nothing');
+
+      final capped = find.descendant(
+        of: body.first,
+        matching: find.byType(ConstrainedBox),
+      );
+      expect(tester.getSize(capped.first).width, 840);
+    });
+
+    testWidgets('a phone pays nothing for the cap', (tester) async {
+      tallScreen(tester);
+      await signIn(tester, 'admin@diamondpolymers.local');
+
+      // Below the cap PageBody returns its child untouched — no Align, no
+      // ConstrainedBox — so the phone layout is pixel-for-pixel what it was.
+      final body = find.byType(PageBody);
+      expect(body, findsWidgets);
+      expect(tester.getSize(body.first).width, 412);
+      expect(
+        find.descendant(of: body.first, matching: find.byType(Align)),
+        findsNothing,
+      );
+    });
+
+    test('the breakpoints follow Material, not a device somebody tested on',
+        () {
+      expect(Breakpoint.fromWidth(360), Breakpoint.compact);
+      expect(Breakpoint.fromWidth(599), Breakpoint.compact);
+      expect(Breakpoint.fromWidth(600), Breakpoint.medium);
+      expect(Breakpoint.fromWidth(1280), Breakpoint.expanded);
+
+      expect(Breakpoint.compact.usesRail, isFalse);
+      expect(Breakpoint.medium.usesRail, isTrue);
+    });
+  });
+
+  // A40: a labourer is on the payroll and nothing else, so the machine screens
+  // are not offered to them. The database refuses a run from anybody who is not
+  // an operator, so tabs that could only ever fail would be worse than absent.
+  group('A labourer gets no machine screens (A40)', () {
+    testWidgets('no Material or Production tab', (tester) async {
+      tallScreen(tester);
+      await signIn(tester, 'lakha@diamondpolymers.local');
+
+      final bar = find.byType(NavigationBar);
+      expect(find.descendant(of: bar, matching: find.text('Home')),
+          findsOneWidget);
+      expect(find.descendant(of: bar, matching: find.text('My Entries')),
+          findsOneWidget);
+      expect(find.descendant(of: bar, matching: find.text('Profile')),
+          findsOneWidget);
+
+      expect(find.descendant(of: bar, matching: find.text('Material')),
+          findsNothing);
+      expect(find.descendant(of: bar, matching: find.text('Production')),
+          findsNothing);
+    });
+
+    testWidgets('but still their own pay', (tester) async {
+      tallScreen(tester);
+      await signIn(tester, 'lakha@diamondpolymers.local');
+
+      await tester.tap(find.descendant(
+        of: find.byType(NavigationBar),
+        matching: find.text('Profile'),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('My pay'), findsOneWidget);
+    });
+
+    test('an operator still gets the machine screens', () {
+      const operator = AppUser(
+        profileId: 'p1',
+        authUserId: 'a1',
+        name: 'Ravi',
+        employeeCode: 'EMP-101',
+        role: UserRole.operator,
+        active: true,
+      );
+      expect(operator.runsMachines, isTrue);
+
+      const labourer = AppUser(
+        profileId: 'p2',
+        authUserId: 'a2',
+        name: 'Lakha',
+        employeeCode: 'EMP-201',
+        role: UserRole.operator,
+        active: true,
+        employeeType: EmployeeType.labourer,
+      );
+      expect(labourer.runsMachines, isFalse);
     });
   });
 

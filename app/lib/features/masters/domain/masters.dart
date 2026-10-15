@@ -286,6 +286,35 @@ class RawMaterial {
 
 /// A person on the factory roll. An operator *is* a profile row (A2), and it may
 /// exist with no login at all (A3) — [hasLogin] is what the UI keys off.
+/// What somebody does for a living (A40).
+///
+/// Separate from [StaffMember.role], which is what they may *see* in the app.
+/// Conflating the two would mean a labourer could only be put on the payroll by
+/// making them an app operator, and the factory's administrator would be filed
+/// as a machine operator.
+enum EmployeeType {
+  operator('OPERATOR', 'Operator', 'Runs a machine. Records material and '
+      'production for whichever machine they are on.'),
+  labourer('LABOURER', 'Labourer', 'On the payroll. No machine work to record, '
+      'so no machine screens.'),
+  office('OFFICE', 'Office', 'Works in the office rather than on the floor.');
+
+  const EmployeeType(this.wire, this.label, this.description);
+
+  final String wire;
+  final String label;
+  final String description;
+
+  /// True when this kind of employee runs machines, and therefore gets the
+  /// machine screens, a machine assignment, and the right to record a run.
+  bool get runsMachines => this == EmployeeType.operator;
+
+  static EmployeeType fromWire(String? value) => values.firstWhere(
+        (t) => t.wire == value,
+        orElse: () => EmployeeType.operator,
+      );
+}
+
 class StaffMember {
   const StaffMember({
     required this.id,
@@ -294,6 +323,7 @@ class StaffMember {
     required this.role,
     required this.active,
     required this.hasLogin,
+    this.employeeType = EmployeeType.operator,
     this.phone,
     this.joinedOn,
     this.salaryDay,
@@ -306,6 +336,10 @@ class StaffMember {
   final String role;
   final bool active;
   final bool hasLogin;
+
+  /// What they do for a living, as opposed to [role], which is what they see.
+  final EmployeeType employeeType;
+
   final String? phone;
 
   /// The day they joined the factory. Null for staff who were already on the
@@ -322,11 +356,16 @@ class StaffMember {
   bool get isAdmin => role == 'ADMIN';
   bool get hasSalary => monthlySalary != null;
 
+  /// Machine screens, a machine assignment and the right to record a run all
+  /// hang off this one question.
+  bool get runsMachines => employeeType.runsMachines;
+
   factory StaffMember.from(Map<String, dynamic> row) => StaffMember(
         id: row['id'] as String,
         name: row['name'] as String? ?? '',
         employeeCode: row['employee_code'] as String? ?? '',
         role: row['role'] as String? ?? 'OPERATOR',
+        employeeType: EmployeeType.fromWire(row['employee_type'] as String?),
         active: row['active'] as bool? ?? true,
         // `v_staff_pay` reports this as a boolean and does not hand out the
         // auth id. A row read straight from `profiles` still carries the id, so
@@ -440,3 +479,58 @@ int _int(Object? value) => switch (value) {
       final String s => int.tryParse(s) ?? double.tryParse(s)?.toInt() ?? 0,
       _ => 0,
     };
+
+/// A machine an operator may work on, from `v_operator_machines` (A40).
+///
+/// Every running machine is offered. [isMine] marks the one they are assigned
+/// to, which the entry forms select by default — the assignment is now a good
+/// guess about where somebody is standing, not a rule about where they may
+/// stand.
+class OperatorMachine {
+  const OperatorMachine({
+    required this.machineId,
+    required this.code,
+    required this.name,
+    required this.status,
+    required this.isMine,
+    this.myShiftId,
+    this.myShiftName,
+  });
+
+  final String machineId;
+  final String code;
+  final String name;
+  final String status;
+  final bool isMine;
+
+  /// The shift on their assignment, where there is one. Used to default the
+  /// shift on an entry form for the machine they usually run.
+  final String? myShiftId;
+  final String? myShiftName;
+
+  String get label => '$code · $name';
+
+  /// The same machine in the shape the entry forms already speak.
+  ///
+  /// `v_operator_machines` answers a different question from the machine master
+  /// — "which may this person use" rather than "which exist" — but the forms
+  /// only need the identity, so they take a [Machine] and stay one code path
+  /// for an operator and an administrator.
+  Machine get asMachine => Machine(
+        id: machineId,
+        code: code,
+        name: name,
+        status: MachineStatus.fromWire(status),
+        active: true,
+      );
+
+  factory OperatorMachine.from(Map<String, dynamic> row) => OperatorMachine(
+        machineId: row['machine_id'] as String? ?? '',
+        code: row['code'] as String? ?? '',
+        name: row['name'] as String? ?? '',
+        status: row['status'] as String? ?? 'ACTIVE',
+        isMine: row['is_mine'] as bool? ?? false,
+        myShiftId: row['my_shift_id'] as String?,
+        myShiftName: row['my_shift_name'] as String?,
+      );
+}

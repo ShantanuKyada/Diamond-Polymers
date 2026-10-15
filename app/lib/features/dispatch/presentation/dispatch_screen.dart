@@ -13,6 +13,7 @@ import '../../inventory/data/inventory_repository.dart';
 import '../../masters/data/masters_repository.dart';
 import '../../masters/domain/masters.dart';
 import '../data/dispatch_repository.dart';
+import '../../../core/widgets/responsive.dart';
 import 'challan_action.dart';
 
 /// Dispatch history, and the entry point for recording a new one (§22).
@@ -32,7 +33,7 @@ class DispatchScreen extends ConsumerWidget {
         icon: const Icon(Icons.add_rounded),
         label: const Text('New dispatch'),
       ),
-      body: RefreshIndicator(
+      body: PageBody(child: RefreshIndicator(
         onRefresh: () async => ref.refresh(dispatchesProvider.future),
         child: AsyncView<List<Dispatch>>(
           value: dispatches,
@@ -98,7 +99,7 @@ class DispatchScreen extends ConsumerWidget {
             );
           },
         ),
-      ),
+      )),
     );
   }
 }
@@ -326,7 +327,7 @@ class _NewDispatchScreenState extends ConsumerState<NewDispatchScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('New Dispatch')),
-      body: AsyncView<List<PipeProduct>>(
+      body: PageBody(child: AsyncView<List<PipeProduct>>(
         value: products,
         onRetry: () => ref.invalidate(productsProvider),
         builder: (context, all) {
@@ -464,7 +465,7 @@ class _NewDispatchScreenState extends ConsumerState<NewDispatchScreen> {
             ),
           );
         },
-      ),
+      )),
     );
   }
 
@@ -481,10 +482,8 @@ class _NewDispatchScreenState extends ConsumerState<NewDispatchScreen> {
   Future<void> _review(List<DispatchLine> lines) async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
-    final confirmed = await showModalBottomSheet<bool>(
+    final confirmed = await showAppSheet<bool>(
       context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
       builder: (context) => _DispatchConfirmSheet(
         buyer: _buyer.text.trim(),
         date: _date,

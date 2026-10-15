@@ -618,3 +618,134 @@ prevent, in the build that gets handed to people. The payroll twins now apply th
 same rule the policies do, and `demoScope` takes who is acting.
 
 Migration `0020_worker_profiles_and_salary_payments.sql`.
+
+---
+
+## A40. Employee types, any machine, leaving, and tablets — RESOLVED
+
+Four changes asked for together. Three are related — they are all about who a
+person is and what they may do — and the fourth is about screen size.
+
+### Role is not type
+
+`profiles.role` is what somebody may *see* in the app: an ADMIN sees the
+factory, an OPERATOR sees their own work. The factory was asking a different
+question — what somebody does for a living — and the two had been the same
+column by accident.
+
+Conflating them would have meant a labourer could only be put on the payroll by
+making them an app operator, and the administrator's own record claiming they
+run a machine.
+
+**Decision:** `profiles.employee_type`, a separate enum — `OPERATOR`,
+`LABOURER`, `OFFICE`.
+
+`OFFICE` was not asked for. It is here because the roll already contains
+somebody who is neither an operator nor a labourer, and a default of `OPERATOR`
+applied to everybody would have quietly told the factory that their
+administrator runs a machine. The existing rows are **backfilled from `role`**
+rather than defaulted, so nobody is labelled something they are not.
+
+The app refuses `ADMIN` + `OPERATOR` as a pair — in the database, in the demo
+twin, and by not offering it in the form — because the two sides of the app are
+chosen by `role` and letting them disagree puts an administrator on a machine
+roster.
+
+### A labourer is on the payroll and nothing else
+
+| They get | They do not get |
+|---|---|
+| A profile, a salary, a salary day, payslips, advances, their own pay screen | Material Entry, Production Entry, a machine assignment |
+
+Enforced in three places because there are three ways to reach it: the shared
+guard `app.assert_can_record()` refuses the entry, a trigger on
+`machine_assignments` refuses the assignment, and the operator shell does not
+show the two machine tabs. The last one matters most in practice — tabs that
+could only ever fail are worse than tabs that are not there.
+
+`DP006` survives with a narrower meaning. It used to say "you are not assigned
+to that machine"; it now says "you are not a machine operator", which is the one
+remaining reason a person may not record a run. Same code, same kind of refusal,
+and the app already maps it to an authorisation failure.
+
+### An operator may work on any machine
+
+The obvious reading of this is to delete `machine_assignments`. That would be
+wrong twice over: it is the history of who ran what, which the reports use, and
+it is the best available guess about which machine somebody is standing at right
+now.
+
+**Decision:** the assignment stays and stops being a gate. What changed is one
+function — `app.assert_can_record()` no longer consults it — and because every
+operator-facing RPC already went through that one guard, the restriction lifted
+everywhere at once.
+
+The forms now ask. Both operator entry screens show every running machine, with
+the assigned one marked `· yours` and already selected, so the common case is
+still no taps. Picking another says so plainly rather than refusing:
+
+> Not your usual machine — that is fine, the entry is recorded against the one
+> you picked.
+
+`v_operator_machines` is the read model, so the rule about which machines are
+available lives in the database and the app does not keep a second copy of it.
+
+This reverses the machine half of **A34**. The other half of A34 stands: an
+operator still records their own material, and still cannot record somebody
+else's work (`DP004`).
+
+### Leaving the factory
+
+`profiles.active` already existed and the admin form already had the switch, so
+most of this was built. What was missing:
+
+1. **An action, not a buried switch.** Taking somebody off the roll happens on
+   the day they leave; it is not an edit to their details. It is now its own
+   item in the roster menu, with a confirmation that says what is kept.
+2. **The assignment stayed open.** Deactivating somebody left their machine
+   assignment open, so a machine went on showing a manned operator who had left.
+   A trigger on `profiles` now closes it — with an end date, never a delete,
+   which is how every other period in this schema ends. Moving somebody off
+   operator work does the same, for the same reason.
+3. **Nobody off the roll can be put back on a machine.** The assignment trigger
+   refuses it.
+
+Nothing is deleted, and that is tested: the payslips, entries, advances and
+closed assignments all survive, and reactivating is the same switch the other
+way.
+
+### Phones and tablets
+
+The app was built phone-first — 360dp, one thumb, a bottom bar — and that was
+right, because it is what the floor uses. On a tablet it was *not broken*, which
+is a different thing from working.
+
+**Two mechanisms, no second design.** `PageBody` centres a page's content and
+caps it at 840dp, so a tablet shows a comfortable column instead of a stretched
+phone; below the cap it returns its child untouched, so a phone pays nothing for
+it. `Breakpoint` moves navigation to a `NavigationRail` at 600dp, which is
+Material's own guidance and the practical answer on a 10" screen held in two
+hands. Modal sheets are capped at 640dp through one helper rather than
+case-by-case.
+
+A factory app that reads well in one column on every device beats a second
+tablet layout nobody maintains.
+
+### What the responsive work actually found
+
+The widget tests set a viewport of **1080 logical pixels** and called it a
+phone. Every test that asserted a bottom bar was unknowingly asserting it on a
+tablet, and the phone layout those tests are named for went unexercised.
+
+Setting it to a real 412dp phone surfaced three overflows that had been shipping:
+
+| Where | What |
+|---|---|
+| Operator Home | The attendance summary ran 15px off the right edge |
+| Production records | A "Wastage used 12.5 kg" tag overflowed its row |
+| Reports | Three date-range chips were 25px wider than the screen |
+
+Each is fixed at its cause — a `Flexible` where text has to shrink, a `Wrap`
+where chips have to break — not by widening the test.
+
+Migration `0021_employee_types_and_any_machine.sql`.
