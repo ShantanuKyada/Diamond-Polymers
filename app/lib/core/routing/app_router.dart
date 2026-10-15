@@ -10,6 +10,7 @@ import '../../features/dashboard/presentation/operator_home_screen.dart';
 import '../../features/inventory/presentation/inventory_screen.dart';
 import '../../features/masters/presentation/catalog_screens.dart';
 import '../../features/masters/presentation/machines_screen.dart';
+import '../../features/masters/presentation/employee_roles_screen.dart';
 import '../../features/masters/presentation/operators_screen.dart';
 import '../../features/masters/presentation/products_screen.dart';
 import '../../features/masters/presentation/settings_screen.dart';
@@ -205,6 +206,8 @@ final routerProvider = Provider<GoRouter>((ref) {
         AppRoute.adminRawMaterials: (context, state) =>
             const RawMaterialsScreen(),
         AppRoute.adminShifts: (context, state) => const ShiftsScreen(),
+        AppRoute.adminEmployeeRoles: (context, state) =>
+            const EmployeeRolesScreen(),
       }),
     ],
   );

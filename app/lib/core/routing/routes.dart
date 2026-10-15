@@ -41,6 +41,8 @@ enum AppRoute {
   adminPipeSizes('/admin/settings/pipe-sizes'),
   adminRawMaterials('/admin/settings/materials'),
   adminShifts('/admin/settings/shifts'),
+  /// The roles the factory puts people on (A41).
+  adminEmployeeRoles('/admin/settings/employee-roles'),
 
   // ---- Operator (§35) -----------------------------------------------------
   operatorHome('/op/home'),

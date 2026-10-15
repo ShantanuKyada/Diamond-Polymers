@@ -95,7 +95,22 @@ class DemoAuthRepository implements AuthRepository {
               (p) => p['role'] == (wantsAdmin ? 'ADMIN' : 'OPERATOR'),
             );
 
-      _signedIn = AppUser.fromProfileRow({...row, 'auth_user_id': 'demo'});
+      // The live query embeds employee_types; the demo store keeps the role as
+      // a code, so it is looked up and attached in the same shape. Without it
+      // every signed-in person would read as running machines (A41).
+      final type = _store.employeeTypes.firstWhere(
+          (t) => t['code'] == row['employee_type'],
+          orElse: () => const {'name': 'Operator', 'runs_machines': true});
+
+      _signedIn = AppUser.fromProfileRow({
+        ...row,
+        'auth_user_id': 'demo',
+        'employee_types': {
+          'code': type['code'],
+          'name': type['name'],
+          'runs_machines': type['runs_machines'],
+        },
+      });
       _store.signedInProfileId = _signedIn!.profileId;
       return _signedIn!;
     });
@@ -908,8 +923,14 @@ class DemoMastersRepository implements MastersRepository {
         .map((p) {
           final pay = _store.staffPayRows
               .firstWhere((r) => r['profile_id'] == p['id'], orElse: () => {});
+          // The role joined in, which is what v_staff_pay does live (A41).
+          final type = _store.employeeTypes.firstWhere(
+              (t) => t['code'] == p['employee_type'],
+              orElse: () => const {'name': 'Operator', 'runs_machines': true});
           return StaffMember.from({
             ...p,
+            'employee_type_name': type['name'],
+            'runs_machines': type['runs_machines'],
             'monthly_salary': pay['monthly_salary'],
           });
         })
@@ -923,7 +944,7 @@ class DemoMastersRepository implements MastersRepository {
     required String employeeCode,
     required String role,
     required bool active,
-    EmployeeType employeeType = EmployeeType.operator,
+    String employeeType = EmployeeType.operatorCode,
     String? phone,
     DateTime? joinedOn,
     int? salaryDay,
@@ -964,13 +985,28 @@ class DemoMastersRepository implements MastersRepository {
           message: 'Worker ID $code is already used by somebody else.',
         );
       }
+      final type = _store.employeeTypes
+          .firstWhere((t) => t['code'] == employeeType, orElse: () => {});
+      if (type.isEmpty) {
+        throw AppException(
+          kind: AppErrorKind.validation,
+          message: 'There is no role called $employeeType.',
+        );
+      }
+      if (type['active'] != true) {
+        throw AppException(
+          kind: AppErrorKind.validation,
+          message: 'The ${type['name']} role has been switched off, so '
+              'nobody new can be put on it.',
+        );
+      }
       // The database refuses this pair, so the demo has to as well (A40).
-      if (role == 'ADMIN' && employeeType == EmployeeType.operator) {
+      if (role == 'ADMIN' && type['runs_machines'] == true) {
         throw const AppException(
           kind: AppErrorKind.validation,
-          message: 'An administrator cannot also be a machine operator. '
-              'Choose Office, or make them an operator instead of an '
-              'administrator.',
+          message: 'An administrator cannot also be on a role that runs '
+              'machines. Choose a different role, or make them an operator '
+              'instead of an administrator.',
         );
       }
 
@@ -978,7 +1014,7 @@ class DemoMastersRepository implements MastersRepository {
         'name': name.trim(),
         'employee_code': code,
         'role': role,
-        'employee_type': employeeType.wire,
+        'employee_type': employeeType,
         'active': active,
         'phone': (phone ?? '').trim().isEmpty ? null : phone!.trim(),
         'joined_on': joinedOn == null ? null : Fmt.isoDate(joinedOn),
@@ -1052,6 +1088,154 @@ class DemoMastersRepository implements MastersRepository {
   /// same answer `v_operator_machines` gives (A40). Deactivating somebody or
   /// moving them off operator work closes their assignment in the database
   /// through a trigger; the demo does it where the profile is written.
+  @override
+  Future<List<EmployeeType>> employeeTypes({bool includeInactive = true}) async {
+    return _latency(() => _store.employeeTypes
+        .where((t) => includeInactive || t['active'] == true)
+        .map((t) => EmployeeType.from({
+              ...t,
+              'active_staff': _store.staff
+                  .where((p) =>
+                      p['employee_type'] == t['code'] && p['active'] == true)
+                  .length,
+              'total_staff': _store.staff
+                  .where((p) => p['employee_type'] == t['code'])
+                  .length,
+            }))
+        .toList(growable: false)
+      ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder)));
+  }
+
+  /// Mirrors save_employee_type, including the rules that stop the factory
+  /// locking itself out of recording production (A41).
+  @override
+  Future<Map<String, dynamic>> saveEmployeeType({
+    String? id,
+    required String name,
+    String? description,
+    bool? runsMachines,
+    bool? active,
+    int? sortOrder,
+  }) async {
+    return _latency(() {
+      if (name.trim().isEmpty) {
+        throw const AppException(
+          kind: AppErrorKind.validation,
+          message: 'A role needs a name.',
+        );
+      }
+      final note =
+          (description ?? '').trim().isEmpty ? null : description!.trim();
+
+      if (id == null) {
+        final code = _codeFrom(name);
+        if (code.isEmpty) {
+          throw const AppException(
+            kind: AppErrorKind.validation,
+            message: 'That name has no letters or numbers in it to make a '
+                'code from. Give the role a different name.',
+          );
+        }
+        if (_store.employeeTypes.any((t) => t['code'] == code)) {
+          throw AppException(
+            kind: AppErrorKind.validation,
+            message: 'A role called RNAME already exists.'
+                .replaceFirst('RNAME', name.trim()),
+          );
+        }
+        final newId = _store.nextId('et');
+        _store.employeeTypes.add({
+          'id': newId,
+          'code': code,
+          'name': name.trim(),
+          'description': note,
+          'runs_machines': runsMachines ?? false,
+          'active': active ?? true,
+          'sort_order': sortOrder ?? 100,
+          'is_system': false,
+        });
+        return {'id': newId, 'code': code, 'created': true};
+      }
+
+      final row = _store.employeeTypes
+          .firstWhere((t) => t['id'] == id, orElse: () => {});
+      if (row.isEmpty) {
+        throw const AppException(
+          kind: AppErrorKind.validation,
+          message: 'That role does not exist.',
+        );
+      }
+
+      if (row['is_system'] == true) {
+        if (active == false) {
+          throw AppException(
+            kind: AppErrorKind.validation,
+            message: 'RNAME cannot be switched off. A factory with no role '
+                    'that runs machines is one where nobody can record '
+                    'production.'
+                .replaceFirst('RNAME', row['name'] as String),
+          );
+        }
+        if (runsMachines == false) {
+          throw AppException(
+            kind: AppErrorKind.validation,
+            message: 'RNAME has to keep running machines — it is the role the '
+                    'factory falls back on.'
+                .replaceFirst('RNAME', row['name'] as String),
+          );
+        }
+      }
+
+      if (row['active'] == true && active == false) {
+        final held = _store.staff
+            .where((p) =>
+                p['employee_type'] == row['code'] && p['active'] == true)
+            .length;
+        if (held > 0) {
+          throw AppException(
+            kind: AppErrorKind.validation,
+            message: 'HELD people are on the RNAME role, so it cannot be '
+                    'switched off. Move them to another role first.'
+                .replaceFirst('HELD', '$held')
+                .replaceFirst('RNAME', row['name'] as String),
+          );
+        }
+      }
+
+      row['name'] = name.trim();
+      row['description'] = note;
+      if (row['is_system'] != true) {
+        if (runsMachines != null) row['runs_machines'] = runsMachines;
+        if (active != null) row['active'] = active;
+      }
+      if (sortOrder != null) row['sort_order'] = sortOrder;
+
+      // A role that stops running machines takes its people's assignments with
+      // it, exactly as the database trigger does.
+      if (row['runs_machines'] != true || row['active'] != true) {
+        final ids = _store.staff
+            .where((p) => p['employee_type'] == row['code'])
+            .map((p) => p['id'])
+            .toSet();
+        _store.assignments.removeWhere((a) => ids.contains(a['operator_id']));
+      }
+
+      return {'id': id, 'code': row['code'], 'created': false};
+    });
+  }
+
+  /// The code the database derives from a role's name.
+  String _codeFrom(String name) {
+    var code = name.trim().toUpperCase().replaceAll(RegExp('[^A-Z0-9]+'), '_');
+    while (code.startsWith('_')) {
+      code = code.substring(1);
+    }
+    while (code.endsWith('_')) {
+      code = code.substring(0, code.length - 1);
+    }
+    return code;
+  }
+
   @override
   Future<List<OperatorMachine>> machinesForOperator() async {
     return _latency(() {

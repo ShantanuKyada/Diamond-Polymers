@@ -329,8 +329,8 @@ class MastersRepository {
     return _guard(() async {
       var query = _client.from('v_staff_pay').select(
             'id:profile_id, name:staff_name, employee_code, phone, role, '
-            'employee_type, active, has_login, joined_on, salary_day, '
-            'monthly_salary',
+            'employee_type, employee_type_name, runs_machines, active, '
+            'has_login, joined_on, salary_day, monthly_salary',
           );
       if (!includeInactive) query = query.eq('active', true);
       final rows = await query.order('employee_code');
@@ -351,7 +351,7 @@ class MastersRepository {
     required String employeeCode,
     required String role,
     required bool active,
-    EmployeeType employeeType = EmployeeType.operator,
+    String employeeType = EmployeeType.operatorCode,
     String? phone,
     DateTime? joinedOn,
     int? salaryDay,
@@ -366,7 +366,7 @@ class MastersRepository {
           'p_name': name.trim(),
           'p_employee_code': employeeCode.trim(),
           'p_role': role,
-          'p_employee_type': employeeType.wire,
+          'p_employee_type': employeeType,
           'p_active': active,
           'p_phone': _nullIfBlank(phone),
           'p_joined_on': joinedOn == null ? null : Fmt.isoDate(joinedOn),
@@ -400,6 +400,50 @@ class MastersRepository {
   // ---------------------------------------------------------------------------
   // Machine assignments (§10)
   // ---------------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------------
+  // Employee roles (A41)
+  // ---------------------------------------------------------------------------
+
+  /// Every role the factory has, with how many people hold each — which is what
+  /// decides whether one can be retired.
+  Future<List<EmployeeType>> employeeTypes({bool includeInactive = true}) async {
+    return _guard(() async {
+      var query = _client.from('v_employee_types').select();
+      if (!includeInactive) query = query.eq('active', true);
+      final rows = await query.order('sort_order').order('name');
+      return rows.map(EmployeeType.from).toList(growable: false);
+    });
+  }
+
+  /// Creates a role, or edits one.
+  ///
+  /// Null means "leave as it is" for [runsMachines] and [active], so renaming a
+  /// role cannot quietly strip its ability to run machines. The code is derived
+  /// from the name on creation and never changes afterwards — it is what the
+  /// database and every existing profile refer to.
+  Future<Map<String, dynamic>> saveEmployeeType({
+    String? id,
+    required String name,
+    String? description,
+    bool? runsMachines,
+    bool? active,
+    int? sortOrder,
+  }) async {
+    return _guard(() async {
+      return await _client.rpc<Map<String, dynamic>>(
+        'save_employee_type',
+        params: {
+          'p_id': id,
+          'p_name': name.trim(),
+          'p_description': _nullIfBlank(description),
+          'p_runs_machines': runsMachines,
+          'p_active': active,
+          'p_sort_order': sortOrder,
+        },
+      );
+    });
+  }
 
   /// Every machine the signed-in operator may work on, which since A40 is all
   /// of the running ones.
@@ -537,6 +581,11 @@ final staffProvider = FutureProvider<List<StaffMember>>((ref) {
 
 /// The machines the signed-in operator may work on (A40). All of the running
 /// ones; the entry forms default to the assigned one where there is one.
+/// Every role the factory has (A41).
+final employeeTypesProvider = FutureProvider<List<EmployeeType>>((ref) {
+  return ref.watch(mastersRepositoryProvider).employeeTypes();
+});
+
 final operatorMachinesProvider =
     FutureProvider<List<OperatorMachine>>((ref) async {
   return ref.watch(mastersRepositoryProvider).machinesForOperator();

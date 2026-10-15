@@ -60,8 +60,13 @@ class AdminMoreScreen extends ConsumerWidget {
               ),
               _Link(
                 icon: Icons.badge_outlined,
-                label: 'Operators',
+                label: 'Employees',
                 route: AppRoute.adminOperators,
+              ),
+              _Link(
+                icon: Icons.workspaces_outline,
+                label: 'Employee roles',
+                route: AppRoute.adminEmployeeRoles,
               ),
               _Link(
                 icon: Icons.assessment_outlined,

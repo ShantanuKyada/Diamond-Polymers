@@ -14,6 +14,7 @@ import 'package:diamond_polymers/features/masters/data/masters_repository.dart';
 import 'package:diamond_polymers/features/masters/data/settings_values.dart';
 import 'package:diamond_polymers/features/masters/domain/masters.dart';
 import 'package:diamond_polymers/features/masters/presentation/catalog_screens.dart';
+import 'package:diamond_polymers/features/masters/presentation/employee_roles_screen.dart';
 import 'package:diamond_polymers/features/mixture/data/mixture_repository.dart';
 import 'package:diamond_polymers/features/masters/presentation/operators_screen.dart';
 import 'package:diamond_polymers/features/staff/presentation/salary_slip_document.dart';
@@ -958,7 +959,7 @@ void main() {
       // Operator is the default, because most of the roll are operators.
       expect(find.text('Operator'), findsWidgets);
 
-      await tester.tap(find.byType(DropdownButtonFormField<EmployeeType>));
+      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
       await tester.pumpAndSettle();
 
       for (final type in ['Operator', 'Labourer', 'Office']) {
@@ -988,7 +989,7 @@ void main() {
       await tester.tap(find.byType(FloatingActionButton));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byType(DropdownButtonFormField<EmployeeType>));
+      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Labourer').last);
       await tester.pumpAndSettle();
@@ -1018,7 +1019,8 @@ void main() {
       expect(added, isNotNull,
           reason: 'roster holds ${all.map((p) => p.employeeCode).toList()}');
       expect(added!.name, 'Naresh Patel');
-      expect(added.employeeType, EmployeeType.labourer);
+      expect(added.employeeTypeCode, 'LABOURER');
+      expect(added.employeeTypeName, 'Labourer');
       expect(added.runsMachines, isFalse);
       // On the payroll like anybody else — that is the whole point of having
       // them on file.
@@ -1352,9 +1354,202 @@ void main() {
         employeeCode: 'EMP-201',
         role: UserRole.operator,
         active: true,
-        employeeType: EmployeeType.labourer,
+        employeeTypeName: 'Labourer',
+        runsMachines: false,
       );
       expect(labourer.runsMachines, isFalse);
+    });
+  });
+
+  // A41: the three roles became master data, so the factory can add their own.
+  group('The factory names its own roles (A41)', () {
+    test('a new role is created with a code made from its name', () async {
+      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final repo = DemoMastersRepository(store);
+
+      final made = await repo.saveEmployeeType(
+        name: 'Shift Supervisor',
+        description: 'Runs a machine and watches the line',
+        runsMachines: true,
+      );
+
+      expect(made['created'], isTrue);
+      expect(made['code'], 'SHIFT_SUPERVISOR');
+
+      final roles = await repo.employeeTypes();
+      final added = roles.firstWhere((r) => r.code == 'SHIFT_SUPERVISOR');
+      expect(added.name, 'Shift Supervisor');
+      expect(added.runsMachines, isTrue);
+      expect(added.isSystem, isFalse);
+      expect(added.activeStaff, 0);
+    });
+
+    test('a role defaults to not running machines', () async {
+      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final repo = DemoMastersRepository(store);
+
+      await repo.saveEmployeeType(name: 'Helper');
+      final helper =
+          (await repo.employeeTypes()).firstWhere((r) => r.code == 'HELPER');
+
+      // The safe default: a new role gets no machine rights until the factory
+      // says it should have them.
+      expect(helper.runsMachines, isFalse);
+    });
+
+    test('two roles of the same name are refused', () async {
+      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final repo = DemoMastersRepository(store);
+
+      await repo.saveEmployeeType(name: 'Helper');
+      expect(
+        () => repo.saveEmployeeType(name: 'Helper'),
+        throwsA(isA<AppException>()
+            .having((e) => e.message, 'message', contains('already exists'))),
+      );
+    });
+
+    test('somebody can be put on a role the factory invented', () async {
+      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final repo = DemoMastersRepository(store);
+
+      await repo.saveEmployeeType(name: 'Fitter', runsMachines: true);
+      await repo.saveStaff(
+        name: 'Prakash Shah',
+        employeeCode: 'EMP-401',
+        role: 'OPERATOR',
+        active: true,
+        employeeType: 'FITTER',
+        monthlySalary: 30000,
+      );
+
+      final person = (await repo.staff())
+          .firstWhere((p) => p.employeeCode == 'EMP-401');
+      expect(person.employeeTypeCode, 'FITTER');
+      expect(person.employeeTypeName, 'Fitter');
+      // The role said it runs machines, so this person does.
+      expect(person.runsMachines, isTrue);
+    });
+
+    test('a role nobody has heard of is refused', () async {
+      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final repo = DemoMastersRepository(store);
+
+      expect(
+        () => repo.saveStaff(
+          name: 'Nobody',
+          employeeCode: 'EMP-402',
+          role: 'OPERATOR',
+          active: true,
+          employeeType: 'DOES_NOT_EXIST',
+        ),
+        throwsA(isA<AppException>()),
+      );
+    });
+
+    test('renaming a role does not strip what it can do', () async {
+      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final repo = DemoMastersRepository(store);
+
+      await repo.saveEmployeeType(name: 'Fitter', runsMachines: true);
+      final before =
+          (await repo.employeeTypes()).firstWhere((r) => r.code == 'FITTER');
+
+      // Only the name is given. Null must mean "leave as it is" — a default of
+      // false here would quietly ground everybody on the role.
+      await repo.saveEmployeeType(id: before.id, name: 'Senior Fitter');
+
+      final after =
+          (await repo.employeeTypes()).firstWhere((r) => r.code == 'FITTER');
+      expect(after.name, 'Senior Fitter');
+      expect(after.runsMachines, isTrue, reason: 'a rename is not a demotion');
+      expect(after.code, 'FITTER', reason: 'the code never moves');
+    });
+
+    test('a role somebody is on cannot be switched off', () async {
+      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final repo = DemoMastersRepository(store);
+
+      final labourer = (await repo.employeeTypes())
+          .firstWhere((r) => r.code == 'LABOURER');
+      expect(labourer.activeStaff, greaterThan(0));
+
+      expect(
+        () => repo.saveEmployeeType(
+            id: labourer.id, name: labourer.name, active: false),
+        throwsA(isA<AppException>()
+            .having((e) => e.message, 'message', contains('Move them'))),
+      );
+    });
+
+    test('Operator cannot be switched off or grounded', () async {
+      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final repo = DemoMastersRepository(store);
+
+      final op = (await repo.employeeTypes())
+          .firstWhere((r) => r.code == EmployeeType.operatorCode);
+      expect(op.isSystem, isTrue);
+      expect(op.canBeRetired, isFalse);
+
+      // With no machine-running role, nobody in the factory could record
+      // production at all.
+      expect(
+        () => repo.saveEmployeeType(id: op.id, name: op.name, active: false),
+        throwsA(isA<AppException>()),
+      );
+      expect(
+        () => repo.saveEmployeeType(
+            id: op.id, name: op.name, runsMachines: false),
+        throwsA(isA<AppException>()),
+      );
+    });
+
+    testWidgets('the roles screen lists them with how many hold each',
+        (tester) async {
+      tallScreen(tester);
+      await tester.pumpWidget(demoScope(
+        signedInProfileId: DemoStore.adminId,
+        child: MaterialApp(
+            theme: AppTheme.light(), home: const EmployeeRolesScreen()),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Employee roles'), findsOneWidget);
+      expect(find.text('Operator'), findsOneWidget);
+      expect(find.text('Labourer'), findsOneWidget);
+      expect(find.text('Office'), findsOneWidget);
+
+      // The built-in one is marked, so the screen can protect it.
+      expect(find.text('built in'), findsOneWidget);
+      // And the count is what tells an admin whether a role can be retired.
+      expect(find.textContaining('Runs machines'), findsWidgets);
+    });
+
+    testWidgets('a new role appears on the employee form', (tester) async {
+      tallScreen(tester);
+      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+
+      await tester.runAsync(() async {
+        await DemoMastersRepository(store)
+            .saveEmployeeType(name: 'Supervisor', runsMachines: true);
+      });
+
+      await tester.pumpWidget(demoScope(
+        store: store,
+        child:
+            MaterialApp(theme: AppTheme.light(), home: const OperatorsScreen()),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(FloatingActionButton));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+      await tester.pumpAndSettle();
+
+      // The role the factory just invented is offered beside the built-in ones.
+      expect(find.text('Supervisor'), findsWidgets);
+      expect(find.text('Operator'), findsWidgets);
     });
   });
 

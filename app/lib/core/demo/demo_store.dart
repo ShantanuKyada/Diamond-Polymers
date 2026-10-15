@@ -48,6 +48,9 @@ class DemoStore {
   final List<Map<String, dynamic>> pipeTypes = [];
   final List<Map<String, dynamic>> pipeSizes = [];
   final List<Map<String, dynamic>> products = [];
+  /// Roles the factory can add to (A41), mirroring `employee_types`.
+  final List<Map<String, dynamic>> employeeTypes = [];
+
   final List<Map<String, dynamic>> staff = [];
   final List<Map<String, dynamic>> assignments = [];
   final List<Map<String, dynamic>> settings = [];
@@ -374,6 +377,43 @@ class DemoStore {
       }
     }
 
+    employeeTypes.addAll([
+      {
+        'id': 'et-operator',
+        'code': 'OPERATOR',
+        'name': 'Operator',
+        'description': 'Runs a machine. Records material and production for '
+            'whichever machine they are on.',
+        'runs_machines': true,
+        'active': true,
+        'sort_order': 10,
+        // Cannot be switched off: a factory with no machine-running role is
+        // one where nobody can record production.
+        'is_system': true,
+      },
+      {
+        'id': 'et-labourer',
+        'code': 'LABOURER',
+        'name': 'Labourer',
+        'description': 'On the payroll. No machine work to record, so no '
+            'machine screens.',
+        'runs_machines': false,
+        'active': true,
+        'sort_order': 20,
+        'is_system': false,
+      },
+      {
+        'id': 'et-office',
+        'code': 'OFFICE',
+        'name': 'Office',
+        'description': 'Works in the office rather than on the floor.',
+        'runs_machines': false,
+        'active': true,
+        'sort_order': 30,
+        'is_system': false,
+      },
+    ]);
+
     staff.addAll([
       _person(adminId, 'Factory Admin', 'EMP-001', 'ADMIN',
           hasLogin: true, joinedOn: '2021-04-01', salaryDay: 1,
@@ -620,9 +660,9 @@ class DemoStore {
       'role': role,
       'active': true,
       'auth_user_id': hasLogin ? 'auth-$employeeCode' : null,
-      // What they do, as opposed to `role`, which is what they see (A40). The
+      // The role they hold, as opposed to `role`, which is what they see. The
       // administrator is office staff — filing them as a machine operator
-      // would put them on a machine roster.
+      // would put them on a machine roster (A40, A41).
       'employee_type': employeeType,
       // Deliberately not filled in for everybody. One worker with no joining
       // date on record is the real state of the live roster, and the screens

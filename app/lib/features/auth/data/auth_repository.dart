@@ -96,8 +96,11 @@ class AuthRepository {
   Future<AppUser> _loadProfile(String authUserId) async {
     final row = await _client
         .from('profiles')
-        .select('id, auth_user_id, name, employee_code, role, employee_type, '
-            'active, phone')
+        // The role is embedded rather than joined by hand: what the session
+        // needs from it is whether this person runs machines, which decides
+        // whether they get the machine screens at all (A41).
+        .select('id, auth_user_id, name, employee_code, role, active, phone, '
+            'employee_types(code, name, runs_machines)')
         .eq('auth_user_id', authUserId)
         .maybeSingle();
 

@@ -99,9 +99,9 @@ if (Array.isArray(pre2)) {
 }
 
 // =============================================================================
-section('0019 verify, on a fully migrated database');
+section('0019 verify, on a database at 0019');
 
-const after = await build({ quiet: true });
+const after = await build({ quiet: true, upto: '0019_simple_payroll.sql' });
 const ver = await run(after, '0019_verify.sql');
 
 check('the verify script runs at all', Array.isArray(ver), ver.error ?? '');
@@ -134,9 +134,12 @@ check('and still runs once 0020 has been applied',
   pre20Again.error ?? JSON.stringify(pre20Again.find?.((r) => r.check.startsWith('02'))));
 
 // =============================================================================
-section('0020 verify, on a fully migrated database');
+section('0020 verify, on a database at 0020');
 
-const after20 = await build({ quiet: true });
+const after20 = await build({
+  quiet: true,
+  upto: '0020_worker_profiles_and_salary_payments.sql',
+});
 const ver20 = await run(after20, '0020_verify.sql');
 
 check('the 0020 verify script runs at all', Array.isArray(ver20), ver20.error ?? '');
@@ -171,14 +174,58 @@ check('and still runs once 0021 has been applied',
   pre21Again.error ?? 'did not report it as applied');
 
 // =============================================================================
-section('0021 verify, on a fully migrated database');
+section('0021 verify, on a database at 0021');
 
-const after21 = await build({ quiet: true });
+const after21 = await build({
+  quiet: true,
+  upto: '0021_employee_types_and_any_machine.sql',
+});
 const ver21 = await run(after21, '0021_verify.sql');
 
 check('the 0021 verify script runs at all', Array.isArray(ver21), ver21.error ?? '');
 if (Array.isArray(ver21)) {
   for (const row of ver21) {
+    check(row.check, row.ok === true, row.detail ?? '');
+  }
+}
+
+// =============================================================================
+section('0022 preflight, on a database at 0021');
+
+const at21 = await build({
+  quiet: true,
+  upto: '0021_employee_types_and_any_machine.sql',
+});
+const pre22 = await run(at21, '0022_preflight.sql');
+
+check('the 0022 preflight runs at all', Array.isArray(pre22), pre22.error ?? '');
+if (Array.isArray(pre22)) {
+  check('it confirms 0021 is in place and 0022 is not',
+    pre22.find((r) => r.check.startsWith('01'))?.ok === true &&
+    pre22.find((r) => r.check.startsWith('02'))?.ok === true,
+    JSON.stringify(pre22.filter((r) => r.ok === false).map((r) => r.check)));
+
+  check('and that every role in use is one it knows how to carry across',
+    pre22.find((r) => r.check.startsWith('04'))?.ok === true,
+    JSON.stringify(pre22.find((r) => r.check.startsWith('04'))));
+}
+
+await applyMigration(at21, '0022_employee_roles_master.sql');
+const pre22Again = await run(at21, '0022_preflight.sql');
+check('and still runs once 0022 has been applied',
+  Array.isArray(pre22Again) &&
+  pre22Again.find((r) => r.check.startsWith('02'))?.ok === false,
+  pre22Again.error ?? 'did not report it as applied');
+
+// =============================================================================
+section('0022 verify, on a database at 0022');
+
+const after22 = await build({ quiet: true });
+const ver22 = await run(after22, '0022_verify.sql');
+
+check('the 0022 verify script runs at all', Array.isArray(ver22), ver22.error ?? '');
+if (Array.isArray(ver22)) {
+  for (const row of ver22) {
     check(row.check, row.ok === true, row.detail ?? '');
   }
 }

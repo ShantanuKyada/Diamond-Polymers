@@ -292,26 +292,82 @@ class RawMaterial {
 /// Conflating the two would mean a labourer could only be put on the payroll by
 /// making them an app operator, and the factory's administrator would be filed
 /// as a machine operator.
-enum EmployeeType {
-  operator('OPERATOR', 'Operator', 'Runs a machine. Records material and '
-      'production for whichever machine they are on.'),
-  labourer('LABOURER', 'Labourer', 'On the payroll. No machine work to record, '
-      'so no machine screens.'),
-  office('OFFICE', 'Office', 'Works in the office rather than on the floor.');
+/// A role somebody can hold, from `employee_types` (A41).
+///
+/// This was an enum of three values until the factory asked to add their own —
+/// a supervisor, a helper, a fitter — which an enum cannot do without a
+/// migration every time. It is master data now, like machines and pipe types.
+///
+/// [runsMachines] is the only thing the rest of the system asks about a role.
+/// It decides whether somebody gets the Material and Production screens,
+/// whether they may be assigned to a machine, and whether the database accepts
+/// a run from them. The factory answers it when they create the role, rather
+/// than the app matching on the name.
+class EmployeeType {
+  const EmployeeType({
+    required this.id,
+    required this.code,
+    required this.name,
+    required this.runsMachines,
+    required this.active,
+    required this.isSystem,
+    this.description,
+    this.sortOrder = 100,
+    this.activeStaff = 0,
+    this.totalStaff = 0,
+  });
 
-  const EmployeeType(this.wire, this.label, this.description);
+  final String id;
 
-  final String wire;
-  final String label;
-  final String description;
+  /// Stable and never edited. The database and these screens refer to the code;
+  /// [name] is what the factory reads and may change freely.
+  final String code;
 
-  /// True when this kind of employee runs machines, and therefore gets the
-  /// machine screens, a machine assignment, and the right to record a run.
-  bool get runsMachines => this == EmployeeType.operator;
+  final String name;
+  final String? description;
+  final bool runsMachines;
+  final bool active;
 
-  static EmployeeType fromWire(String? value) => values.firstWhere(
-        (t) => t.wire == value,
-        orElse: () => EmployeeType.operator,
+  /// Operator. It cannot be switched off and cannot stop running machines —
+  /// a factory with no machine-running role is one where nobody can record
+  /// production at all.
+  final bool isSystem;
+
+  final int sortOrder;
+
+  /// How many people hold it, which is what decides whether it can be retired.
+  final int activeStaff;
+  final int totalStaff;
+
+  bool get canBeRetired => !isSystem && activeStaff == 0;
+
+  /// The code the database falls back on, and the one this app assumes when it
+  /// has no better answer.
+  static const operatorCode = 'OPERATOR';
+
+  factory EmployeeType.from(Map<String, dynamic> row) => EmployeeType(
+        id: row['id'] as String? ?? '',
+        code: row['code'] as String? ?? operatorCode,
+        name: row['name'] as String? ?? 'Operator',
+        description: row['description'] as String?,
+        runsMachines: row['runs_machines'] as bool? ?? false,
+        active: row['active'] as bool? ?? true,
+        isSystem: row['is_system'] as bool? ?? false,
+        sortOrder: switch (row['sort_order']) {
+          final num n => n.toInt(),
+          final String s => int.tryParse(s) ?? 100,
+          _ => 100,
+        },
+        activeStaff: switch (row['active_staff']) {
+          final num n => n.toInt(),
+          final String s => int.tryParse(s) ?? 0,
+          _ => 0,
+        },
+        totalStaff: switch (row['total_staff']) {
+          final num n => n.toInt(),
+          final String s => int.tryParse(s) ?? 0,
+          _ => 0,
+        },
       );
 }
 
@@ -323,7 +379,9 @@ class StaffMember {
     required this.role,
     required this.active,
     required this.hasLogin,
-    this.employeeType = EmployeeType.operator,
+    this.employeeTypeCode = EmployeeType.operatorCode,
+    this.employeeTypeName = 'Operator',
+    this.runsMachines = true,
     this.phone,
     this.joinedOn,
     this.salaryDay,
@@ -337,8 +395,14 @@ class StaffMember {
   final bool active;
   final bool hasLogin;
 
-  /// What they do for a living, as opposed to [role], which is what they see.
-  final EmployeeType employeeType;
+  /// The role they hold, as opposed to [role], which is what they may see.
+  /// Carried as a code and a name rather than a reference: the roster shows
+  /// the name and the form saves the code (A41).
+  final String employeeTypeCode;
+  final String employeeTypeName;
+
+  /// Whether that role runs machines — the one question everything else asks.
+  final bool runsMachines;
 
   final String? phone;
 
@@ -356,16 +420,17 @@ class StaffMember {
   bool get isAdmin => role == 'ADMIN';
   bool get hasSalary => monthlySalary != null;
 
-  /// Machine screens, a machine assignment and the right to record a run all
-  /// hang off this one question.
-  bool get runsMachines => employeeType.runsMachines;
+
 
   factory StaffMember.from(Map<String, dynamic> row) => StaffMember(
         id: row['id'] as String,
         name: row['name'] as String? ?? '',
         employeeCode: row['employee_code'] as String? ?? '',
         role: row['role'] as String? ?? 'OPERATOR',
-        employeeType: EmployeeType.fromWire(row['employee_type'] as String?),
+        employeeTypeCode:
+            row['employee_type'] as String? ?? EmployeeType.operatorCode,
+        employeeTypeName: row['employee_type_name'] as String? ?? 'Operator',
+        runsMachines: row['runs_machines'] as bool? ?? true,
         active: row['active'] as bool? ?? true,
         // `v_staff_pay` reports this as a boolean and does not hand out the
         // auth id. A row read straight from `profiles` still carries the id, so

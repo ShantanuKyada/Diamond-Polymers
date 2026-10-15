@@ -749,3 +749,84 @@ Each is fixed at its cause — a `Flexible` where text has to shrink, a `Wrap`
 where chips have to break — not by widening the test.
 
 Migration `0021_employee_types_and_any_machine.sql`.
+
+---
+
+## A41. The factory names its own roles — RESOLVED
+
+A40 gave staff a type, as a Postgres enum of three values: `OPERATOR`,
+`LABOURER`, `OFFICE`. The factory asked to add their own — a supervisor, a
+helper, a fitter — which an enum cannot do without a migration every time.
+
+**Decision:** the enum becomes a master table, like machines and pipe types
+already are.
+
+### The one question a role has to answer
+
+Everything the system does with a type comes down to one thing: **does this
+person run machines?** It decides whether they get the Material and Production
+screens, whether they may be assigned to a machine, and whether the database
+accepts a run from them.
+
+So `runs_machines` is a column on the role, answered by whoever creates it.
+Without it a new role would be a label with no meaning, and the code would have
+to guess — or, worse, match on the name. `app.assert_can_record()` now reads
+that flag instead of comparing against `'OPERATOR'`, so a role the factory
+invented this morning works exactly like the built-in one.
+
+### What cannot be taken away
+
+`is_system` marks **Operator**. It cannot be switched off and its
+`runs_machines` cannot be turned off, because a factory with no machine-running
+role is one where nobody can record production at all. Everything else about it
+— its display name, its position in the list — is the factory's to change.
+
+A role is **never deleted, only retired**, and only while nobody active holds
+it. Deleting one would orphan the history of everybody who ever did.
+
+### Code and name are different things
+
+The **code** is derived from the name when a role is created (`Shift
+Supervisor` → `SHIFT_SUPERVISOR`) and never changes. It is what the database,
+the app and every existing profile refer to. The **name** is what the factory
+reads, and renaming is free — which the tests pin, because a rename that
+silently moved the code would reassign everybody on it.
+
+### Two bugs the tests caught
+
+**A rename was a demotion.** `p_runs_machines` defaulted to `false`, so editing
+only a role's name told the database that role no longer runs machines —
+grounding everybody on it and closing their assignments. Null now means "leave
+as it is", and `false` only ever arrives because somebody chose it.
+
+**`NOT NULL` with no default broke every direct insert.** `employee_type_id`
+cannot carry a column `DEFAULT`, because Postgres will not take a subquery for
+one. Without something, a hand-written insert — including one an administrator
+types into the SQL editor — fails on a column they have never heard of. A
+`BEFORE INSERT` trigger fills it with Operator.
+
+### In the app
+
+**More → Employee roles** lists every role with how many people hold it, which
+is what tells an administrator whether one can be retired. The built-in one is
+marked and its switches are disabled rather than hidden, so the reason is
+visible.
+
+**More → Employees** now builds its type dropdown from that list. The rule that
+an administrator cannot hold a machine-running role still holds, and is still
+enforced in the database, the demo twin and the form.
+
+### What else moved
+
+`profiles.employee_type` (the enum) became `employee_type_id` (a reference), and
+the enum type was dropped — leaving one answer to "what roles exist" rather than
+two that can disagree. The session query embeds the role rather than joining by
+hand, because what it needs is `runs_machines`.
+
+The migration-window tests changed too: each `*_verify.sql` now runs against a
+database at **its own** migration rather than the latest one. A verify script
+describes the state right after the migration it belongs to, and 0022 legitimately
+replaced what 0021's script asks about. Running them all at the end would make
+every new migration break every older script.
+
+Migration `0022_employee_roles_master.sql`.

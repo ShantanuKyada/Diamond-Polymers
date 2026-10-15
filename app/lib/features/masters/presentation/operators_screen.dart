@@ -23,6 +23,9 @@ class OperatorsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final staff = ref.watch(staffProvider);
     final assignments = ref.watch(assignmentsProvider).value ?? const [];
+    // Watched so the roles are loaded by the time the form opens: ref.read in
+    // the callback only sees a value somebody has already asked for.
+    ref.watch(employeeTypesProvider);
 
     return MasterScaffold<StaffMember>(
       // Not "Operators" any more: the factory has labourers and office staff on
@@ -81,7 +84,13 @@ class OperatorsScreen extends ConsumerWidget {
           : Fmt.plainAmount(existing!.monthlySalary!),
     );
     var role = existing?.role ?? UserRole.operator.wire;
-    var type = existing?.employeeType ?? EmployeeType.operator;
+    // The roles the factory has, loaded rather than hard-coded (A41).
+    final roles = (ref.read(employeeTypesProvider).value ?? const <EmployeeType>[])
+        .where((t) => t.active || t.code == existing?.employeeTypeCode)
+        .toList(growable: false);
+    var typeCode = existing?.employeeTypeCode ?? EmployeeType.operatorCode;
+    EmployeeType? roleFor(String code) =>
+        roles.where((t) => t.code == code).firstOrNull;
     var active = existing?.active ?? true;
     var joinedOn = existing?.joinedOn;
     var salaryDay = existing?.salaryDay;
@@ -91,20 +100,24 @@ class OperatorsScreen extends ConsumerWidget {
       title: existing == null ? 'Add person' : 'Edit ${existing.name}',
       fields: (rebuild) => [
         // First, because it decides what the rest of the form is for (A40).
-        SheetDropdown<EmployeeType>(
+        // The list is whatever roles the factory has made (A41).
+        SheetDropdown<String>(
           label: 'Employee type',
-          value: type,
+          value: typeCode,
           required: true,
-          helper: type.description,
+          helper: roleFor(typeCode)?.description ??
+              'Which kind of employee this is. Add more under '
+                  'More -> Employee roles.',
           items: [
-            for (final t in EmployeeType.values)
-              DropdownMenuItem(value: t, child: Text(t.label)),
+            for (final t in roles)
+              DropdownMenuItem(value: t.code, child: Text(t.name)),
           ],
           onChanged: (value) {
-            type = value ?? type;
-            // An administrator is office staff, not a machine operator — the
-            // database refuses that combination, so the form does not offer it.
-            if (type == EmployeeType.operator && role == UserRole.admin.wire) {
+            typeCode = value ?? typeCode;
+            // An administrator is not a floor worker — the database refuses
+            // that pair, so the form does not offer it.
+            if ((roleFor(typeCode)?.runsMachines ?? false) &&
+                role == UserRole.admin.wire) {
               role = UserRole.operator.wire;
             }
             rebuild();
@@ -180,7 +193,7 @@ class OperatorsScreen extends ConsumerWidget {
             // An administrator is not a machine operator; the database refuses
             // that pair, so the form does not offer it rather than letting
             // somebody pick it and be told no.
-            if (type != EmployeeType.operator)
+            if (!(roleFor(typeCode)?.runsMachines ?? false))
               DropdownMenuItem(
                 value: UserRole.admin.wire,
                 child: const Text('The whole factory (administrator)'),
@@ -210,7 +223,7 @@ class OperatorsScreen extends ConsumerWidget {
             name: name.text,
             employeeCode: code.text,
             role: role,
-            employeeType: type,
+            employeeType: typeCode,
             active: active,
             phone: phone.text,
             joinedOn: joinedOn,
@@ -222,6 +235,7 @@ class OperatorsScreen extends ConsumerWidget {
     if (saved) {
       ref.invalidate(staffProvider);
       ref.invalidate(assignmentsProvider);
+      ref.invalidate(employeeTypesProvider);
       if (context.mounted) {
         showMessage(context, existing == null ? 'Employee added' : 'Saved');
       }
@@ -276,7 +290,7 @@ class OperatorsScreen extends ConsumerWidget {
             name: person.name,
             employeeCode: person.employeeCode,
             role: person.role,
-            employeeType: person.employeeType,
+            employeeType: person.employeeTypeCode,
             active: !person.active,
             phone: person.phone,
             joinedOn: person.joinedOn,
@@ -538,13 +552,10 @@ class _StaffTile extends StatelessWidget {
                 // the subtitle is a Wrap, and a single string carrying both
                 // overflowed a 360px phone.
                 _Fact(
-                  icon: switch (person.employeeType) {
-                    EmployeeType.operator =>
-                      Icons.precision_manufacturing_outlined,
-                    EmployeeType.labourer => Icons.engineering_outlined,
-                    EmployeeType.office => Icons.business_center_outlined,
-                  },
-                  label: person.employeeType.label,
+                  icon: person.runsMachines
+                      ? Icons.precision_manufacturing_outlined
+                      : Icons.engineering_outlined,
+                  label: person.employeeTypeName,
                 ),
                 // A labourer gets no machine item at all: "No machine" would
                 // read as something missing from their record rather than as

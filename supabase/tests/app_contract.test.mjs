@@ -124,7 +124,11 @@ const READS = [
   ['v_staff_pay', 'employee_type'],
   ['v_operator_machines',
     'machine_id, code, name, status, is_mine, my_shift_id, my_shift_name'],
-  ['profiles', 'employee_type'],
+  ['profiles', 'employee_type_id'],
+  ['v_staff_pay', 'employee_type_name, runs_machines'],
+  ['v_employee_types',
+    'id, code, name, description, runs_machines, active, sort_order, '
+    + 'is_system, active_staff, total_staff'],
 ];
 
 await asUser(db, ADMIN_AUTH, async () => {
