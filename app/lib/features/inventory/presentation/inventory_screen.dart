@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/panels.dart';
+import '../../../core/widgets/responsive.dart';
 import '../../../core/widgets/state_views.dart';
 import '../../dashboard/domain/dashboard_models.dart';
 import '../../masters/data/masters_repository.dart';
@@ -43,12 +44,14 @@ class InventoryScreen extends ConsumerWidget {
             ),
           ],
         ),
-        body: const TabBarView(
-          children: [
-            _RawMaterialTab(),
-            _FinishedGoodsTab(),
-            _RegrindTab(),
-          ],
+        body: const PageBody(
+          child: TabBarView(
+            children: [
+              _RawMaterialTab(),
+              _FinishedGoodsTab(),
+              _RegrindTab(),
+            ],
+          ),
         ),
       ),
     );
