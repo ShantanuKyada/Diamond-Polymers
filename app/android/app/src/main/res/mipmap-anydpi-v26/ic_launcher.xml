@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The adaptive launcher icon (Android 8 and later).
+
+  The launcher masks this to whatever shape the phone uses — circle, squircle,
+  teardrop — and only the middle two thirds of the canvas is guaranteed to
+  survive. ic_launcher_foreground.png is drawn with that margin, so the mark
+  keeps its shape under every mask.
+
+  Older Androids ignore this file and use the flat mipmap PNG instead.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <monochrome android:drawable="@mipmap/ic_launcher_foreground" />
+</adaptive-icon>

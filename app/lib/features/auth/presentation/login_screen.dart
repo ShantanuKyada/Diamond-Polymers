@@ -69,17 +69,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Container(
-                      height: 64,
-                      width: 64,
-                      decoration: BoxDecoration(
-                        color: scheme.primary,
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Icon(
+                    // The factory's own mark, rather than a stock icon. It
+                    // carries transparency, so it reads on the light and the
+                    // dark theme without a tile behind it.
+                    Image.asset(
+                      'assets/brand/logo.png',
+                      height: 88,
+                      width: 88,
+                      // An asset that failed to build is a broken image on the
+                      // first screen anybody sees, so it falls back rather
+                      // than showing the exception box.
+                      errorBuilder: (context, error, stack) => Icon(
                         Icons.precision_manufacturing_outlined,
-                        color: scheme.onPrimary,
-                        size: 34,
+                        color: scheme.primary,
+                        size: 44,
                       ),
                     ),
                     const SizedBox(height: 24),

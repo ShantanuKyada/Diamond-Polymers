@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The navy the logo was designed against, sampled from the artwork. -->
+    <color name="ic_launcher_background">#0D1A26</color>
+</resources>

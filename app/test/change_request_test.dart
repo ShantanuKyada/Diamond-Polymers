@@ -166,7 +166,10 @@ void main() {
       await tester.pumpAndSettle();
       final bagsOff = tester.widget<TextField>(find.byKey(const Key('bags')));
       expect(bagsOff.enabled, isFalse);
-      expect(find.text('Not packed in bags'), findsOneWidget);
+      // Says WHY it is disabled, and what to do about it. "Not packed in bags"
+      // read as a property of the product, when it is really an empty field —
+      // and an operator cannot tell those apart (A42).
+      expect(find.text('No pipes-per-bag set for this product'), findsOneWidget);
 
       // Size 1 is packed in bags of 20.
       await tester.tap(find.textContaining('Size 1'));

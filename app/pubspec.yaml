@@ -68,10 +68,11 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
-  # To add assets to your application, add an assets section, like this:
-  # assets:
-  #   - images/a_dot_burr.jpeg
-  #   - images/a_dot_ham.jpeg
+  assets:
+    # The factory's own mark. logo.png carries transparency, so it sits on
+    # whichever background a screen already has; logo_tile.png is the same
+    # mark flattened onto the brand navy.
+    - assets/brand/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

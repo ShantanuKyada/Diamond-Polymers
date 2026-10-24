@@ -22,9 +22,7 @@ insert into public.app_settings (key, value, description) values
   ('reusable_wastage_mode', 'SEPARATE',
    'A9: SEPARATE keeps reusable wastage out of raw-material stock. SUBSTITUTE is not implemented.'),
   ('currency_symbol', '₹',
-   'Currency shown on payroll screens.'),
-  ('low_stock_banner_enabled', 'true',
-   'Show the low-stock banner on the admin dashboard.')
+   'Currency shown on payroll screens.')
 on conflict (key) do update set description = excluded.description;
 
 -- -----------------------------------------------------------------------------

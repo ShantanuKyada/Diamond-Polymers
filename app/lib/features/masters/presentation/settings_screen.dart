@@ -6,6 +6,7 @@ import '../../../core/routing/routes.dart';
 import '../../../core/widgets/state_views.dart';
 import '../data/masters_repository.dart';
 import '../domain/masters.dart';
+import '../domain/setting_spec.dart';
 import '../../../core/widgets/responsive.dart';
 import 'widgets/master_scaffold.dart';
 
@@ -100,12 +101,18 @@ class SettingsScreen extends ConsumerWidget {
     WidgetRef ref,
     AppSetting setting,
   ) async {
+    final spec = SettingSpec.forKey(setting.key);
     final value = TextEditingController(text: setting.value);
+    // Held apart from the controller: a switch and a dropdown have no text to
+    // edit, and threading them through one would mean parsing it back out.
+    var picked = setting.value;
 
     final saved = await showEditSheet(
       context: context,
-      title: _humanise(setting.key),
+      title: titleFor(setting.key),
       fields: (rebuild) => [
+        // The database's own description first. It is the authoritative one,
+        // written beside the code that reads the value.
         if (setting.description != null)
           Padding(
             padding: const EdgeInsets.only(bottom: 16),
@@ -114,16 +121,73 @@ class SettingsScreen extends ConsumerWidget {
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ),
-        SheetField(
-          controller: value,
-          label: 'Value',
-          required: true,
-          helper: 'Stored as text. The database reads and interprets it — an '
-              'invalid value is rejected when it is next used, not here.',
-        ),
+
+        switch (spec.kind) {
+          // A switch, not a text box: "true" is one of several things somebody
+          // might type, and every other spelling silently falls back to the
+          // default the next time the database reads it.
+          SettingKind.toggle => _ToggleField(
+              spec: spec,
+              value: picked,
+              onChanged: (v) {
+                picked = v;
+                rebuild();
+              },
+            ),
+          SettingKind.choice => SheetDropdown<String>(
+              label: 'Value',
+              value: spec.options.any((o) => o.value == picked) ? picked : null,
+              required: true,
+              helper: spec.hint,
+              items: [
+                for (final option in spec.options)
+                  DropdownMenuItem(
+                      value: option.value, child: Text(option.label)),
+              ],
+              onChanged: (v) {
+                picked = v ?? picked;
+                rebuild();
+              },
+            ),
+          SettingKind.number => SheetField(
+              controller: value,
+              label: spec.suffix == null ? 'Value' : 'Value (${spec.suffix})',
+              required: true,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              helper: spec.hint,
+              validator: (raw) {
+                final n = num.tryParse((raw ?? '').trim());
+                if (n == null) return 'Enter a number.';
+                if (spec.min != null && n < spec.min!) {
+                  return 'Cannot be below ${spec.min}.';
+                }
+                if (spec.max != null && n > spec.max!) {
+                  return 'Cannot be above ${spec.max}.';
+                }
+                return null;
+              },
+            ),
+          SettingKind.multiline => SheetField(
+              controller: value,
+              label: 'Value',
+              maxLines: 3,
+              helper: spec.hint,
+            ),
+          SettingKind.text => SheetField(
+              controller: value,
+              label: 'Value',
+              helper: spec.hint,
+            ),
+        },
       ],
-      onSave: () =>
-          ref.read(mastersRepositoryProvider).setSetting(setting.key, value.text),
+      onSave: () => ref.read(mastersRepositoryProvider).setSetting(
+            setting.key,
+            switch (spec.kind) {
+              SettingKind.toggle || SettingKind.choice => picked,
+              _ => value.text,
+            },
+          ),
     );
 
     if (saved) {
@@ -131,6 +195,11 @@ class SettingsScreen extends ConsumerWidget {
       if (context.mounted) showMessage(context, 'Setting updated');
     }
   }
+
+  /// The name a setting is shown under: the one its spec gives, or one
+  /// derived from the key.
+  static String titleFor(String key) =>
+      SettingSpec.forKey(key).label ?? _humanise(key);
 
   static String _humanise(String key) {
     final words = key.split('_');
@@ -201,7 +270,7 @@ class _SettingTile extends StatelessWidget {
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
-      title: Text(SettingsScreen._humanise(setting.key)),
+      title: Text(SettingsScreen.titleFor(setting.key)),
       subtitle: setting.description == null
           ? null
           : Padding(
@@ -220,7 +289,10 @@ class _SettingTile extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
         ),
         child: Text(
-          setting.value,
+          // What the value means, where that is known — "Refuse" rather than
+          // "true". An unrecognised value still shows itself, so a setting
+          // holding something unexpected is visible rather than disguised.
+          SettingSpec.forKey(setting.key).labelFor(setting.value),
           style: Theme.of(context)
               .textTheme
               .labelMedium
@@ -229,6 +301,58 @@ class _SettingTile extends StatelessWidget {
       ),
       onTap: onEdit,
       isThreeLine: setting.description != null,
+    );
+  }
+}
+
+/// A true/false setting, shown as the two things it actually means.
+///
+/// Not a bare switch: "Refuse" and "Allow" say what happens, where "on" and
+/// "off" leave the reader to work out which way round the rule runs. The note
+/// under each is the consequence of choosing it.
+class _ToggleField extends StatelessWidget {
+  const _ToggleField({
+    required this.spec,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final SettingSpec spec;
+  final String value;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final option in spec.options)
+            RadioListTile<String>(
+              value: option.value,
+              // ignore: deprecated_member_use
+              groupValue: value,
+              // ignore: deprecated_member_use
+              onChanged: (v) => onChanged(v ?? value),
+              title: Text(option.label),
+              subtitle: option.note == null ? null : Text(option.note!),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+            ),
+          if (spec.hint != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                spec.hint!,
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

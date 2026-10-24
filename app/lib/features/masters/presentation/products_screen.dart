@@ -375,10 +375,14 @@ class _ProductTile extends StatelessWidget {
                       : scheme.primary,
                 ),
                 _Figure(
+                  // "Not set", matching the bundle figure beside it, rather
+                  // than "Not bagged": an empty field and a product that
+                  // genuinely has no bags look the same here, and the operator
+                  // whose Bags box is disabled needs to know which it is.
                   label: '1 bag',
                   value: product.hasBagPacking
                       ? '${product.pipesPerBag}'
-                      : 'Not bagged',
+                      : 'Not set',
                   suffix: product.hasBagPacking ? 'pipes' : null,
                   tone: product.hasBagPacking
                       ? scheme.primary

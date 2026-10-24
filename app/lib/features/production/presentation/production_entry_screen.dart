@@ -322,7 +322,13 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen> {
                             ? null
                             : bagsAllowed
                                 ? '${product.pipesPerBag} pipes each'
-                                : 'Not packed in bags',
+                                // Bags are refused until somebody says how
+                                // many pipes are in one, because the database
+                                // cannot weigh a bag without it (A26). That
+                                // reads as "this product has no bags", which
+                                // is indistinguishable from "nobody has set it
+                                // up" — so it says which, and where to go.
+                                : 'No pipes-per-bag set for this product',
                       ),
                     ),
                   ),

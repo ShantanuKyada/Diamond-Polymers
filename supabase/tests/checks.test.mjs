@@ -6,8 +6,8 @@
 // window. If one of them has a typo, they find out at the worst possible
 // moment — so they are exercised here first.
 import { build, applyMigration } from './harness.mjs';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const CHECKS = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'checks');
@@ -110,6 +110,58 @@ const afterTwice = await rows(db, '0015_verify.sql');
 check('and everything still verifies',
   afterTwice.every((r) => r.ok === true),
   afterTwice.filter((r) => !r.ok).map((r) => r.check).join(', '));
+
+// =============================================================================
+section('Every setting on the Configuration screen is read by something');
+
+// A setting nobody reads is a switch that does nothing, on a screen whose whole
+// point is changing how the factory runs. 0019 retired four of them and 0023 a
+// fifth; this is what stops a sixth going unnoticed.
+//
+// "Read" is judged exactly, not by counting mentions: SQL reads a setting
+// through app.setting('<key>' and nothing else, and the Dart reads one by
+// naming it. A migration that DELETEs a key mentions it too, which is why
+// counting mentions passed every retired setting it was supposed to catch.
+{
+  // Its own database: the suite above deliberately builds older ones to test
+  // the upgrade path, and those still hold settings since retired.
+  const current = await build({ quiet: true });
+
+  const roots = [
+    join(fileURLToPath(new URL('.', import.meta.url)), '..', 'migrations'),
+    join(fileURLToPath(new URL('.', import.meta.url)), '..', '..', 'app', 'lib'),
+  ];
+  const sql = [];
+  const dart = [];
+  const walk = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (e.name.endsWith('.sql')) sql.push(readFileSync(full, 'utf8'));
+      // The demo store is excluded on purpose: it mirrors the database, so a
+      // key appearing there says only that the demo seeds it, not that
+      // anything reads it. One dead setting passed this check for exactly
+      // that reason.
+      else if (e.name.endsWith('.dart') && !full.includes('core' + sep + 'demo')) {
+        dart.push(readFileSync(full, 'utf8'));
+      }
+    }
+  };
+  for (const root of roots) walk(root);
+  const sqlText = sql.join(String.fromCharCode(10));
+  const dartText = dart.join(String.fromCharCode(10));
+
+  const keys = (await current.query(
+    'select key from public.app_settings order by key')).rows.map((r) => r.key);
+
+  for (const key of keys) {
+    const inSql = sqlText.includes("app.setting('" + key + "'");
+    const inDart = dartText.includes("'" + key + "'");
+    check(key + ' is read by something',
+      inSql || inDart,
+      'not read by any migration or by the app');
+  }
+}
 
 console.log(`\n${'═'.repeat(64)}\n  ${pass} passed, ${fail} failed\n${'═'.repeat(64)}`);
 if (fail) {

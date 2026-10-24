@@ -55,6 +55,7 @@ const files = [
   '0020_worker_profiles_and_salary_payments.sql',
   '0021_employee_types_and_any_machine.sql',
   '0022_employee_roles_master.sql',
+  '0023_retire_unread_setting.sql',
 ].map((n) => ({ name: n, path: join(MIG, n) }));
 
 if (withSeed) {

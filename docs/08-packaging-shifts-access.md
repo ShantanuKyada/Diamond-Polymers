@@ -830,3 +830,94 @@ replaced what 0021's script asks about. Running them all at the end would make
 every new migration break every older script.
 
 Migration `0022_employee_roles_master.sql`.
+
+---
+
+## A42. The logo, the Bags box, and typed configuration — RESOLVED
+
+Three unrelated things asked together.
+
+### The logo
+
+What arrived was a **presentation mockup**: the mark photographed on an office
+wall, 4344×3258, with furniture and glass behind it. Using it whole would have
+put an office interior on the launcher icon.
+
+No rasteriser was available on the machine — no ImageMagick, no poppler, no
+Python — but none was needed. The PDF holds one embedded bitmap, so it was
+extracted directly: ASCII85 decode, inflate, and a PNG encoder written against
+the spec. The mark was then separated from the wall by **flood-filling from the
+border**, which is what makes the dark diamond at the centre survive: the fill
+cannot reach it without crossing the bright ring, so enclosed dark areas stay
+part of the mark where a brightness threshold would have punched holes in them.
+
+| Output | Where |
+|---|---|
+| `ic_launcher.png` at five densities | the legacy launcher icon, on the brand navy |
+| `ic_launcher_foreground.png` + `ic_launcher_background` | the adaptive icon, artwork inside the inner two thirds so no mask clips it |
+| `assets/brand/logo.png` | transparent, used on the sign-in screen |
+| `assets/brand/logo_tile.png` | the same mark flattened onto navy |
+
+**This is as good as a mockup gets.** A clean logo file — SVG, or PNG with real
+transparency — would give a sharper icon, because the edges here carry the
+photograph's lighting and a faint shadow rather than the artwork's own.
+
+### Why the Bags box was disabled
+
+Working as designed, and saying so badly.
+
+A bag needs `pipes_per_bag` before the database can weigh one (A26), so until
+somebody sets it the field is disabled. It said **"Not packed in bags"**, which
+reads as a fact about the product. An empty field and a product that genuinely
+has no bags are indistinguishable in the data, and the operator looking at a
+greyed-out box cannot tell which they have.
+
+It now says **"No pipes-per-bag set for this product"**, and the Products list
+says `Not set` rather than `Not bagged`, matching the bundle figure beside it.
+Nothing about the rule changed — only whether somebody can tell what to do.
+
+**The fix for the factory is data:** More → Configuration → Products, set
+"Pipes per bag" on the products that are bagged.
+
+### Typed configuration
+
+Every setting is stored as text, which is right for a key-value table and wrong
+for a screen. A free text box for a true/false rule invites `yes`, `TRUE`, `1`
+and a typo — each of which silently falls back to the default the next time the
+database reads it, with nothing to say so. The old helper admitted as much: *"an
+invalid value is rejected when it is next used, not here."*
+
+Each setting now gets the control its value deserves:
+
+| Kind | Settings |
+|---|---|
+| Two named choices | the three rules — each option says what happens, not "on" and "off" |
+| Dropdown | timezone, currency, wastage unit |
+| Bounded number | shred tolerance, 0–100% |
+| Text / multiline | names, address, GSTIN, footers |
+
+A key the app has never heard of still gets a plain text box, so a migration can
+add a setting without an app release.
+
+### Two settings that did nothing
+
+The work turned up `recycled_input_mode`, which **nothing has ever read**. It
+recorded a real decision — shredded pipe is stocked as a RECYCLED raw material —
+but it was a label, not a switch, and changing it did nothing. The same
+reasoning retired four payroll settings in A38: a setting nobody reads is a
+promise the system has stopped keeping.
+
+Writing the guard then found a second, `low_stock_banner_enabled`: the dashboard
+shows that banner whenever something is low, regardless of the value.
+
+Both are deleted by `0023`. The decisions they recorded live in comments beside
+the code that implements them, which is where a decision belongs.
+
+`checks.test.mjs` now fails if any row in `app_settings` is not read by a
+migration or by the app. Judging "read" by counting mentions does not work — a
+migration that DELETEs a key mentions it too, and that first attempt passed
+every retired setting it was meant to catch. It looks for `app.setting('<key>'`
+in SQL and the key in Dart, and excludes the demo store, which mirrors the
+database rather than reading it.
+
+Migration `0023_retire_unread_setting.sql`.
