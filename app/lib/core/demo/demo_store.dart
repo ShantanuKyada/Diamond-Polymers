@@ -11,9 +11,18 @@ import '../utils/formatters.dart';
 /// The figures mirror `supabase/seed.sql` so the two tell the same story.
 /// Nothing here is persisted: a reload restores the seeded state.
 class DemoStore {
-  DemoStore() {
+  /// A factory on its first day: machines, shifts, products, materials and
+  /// one administrator, with every balance at zero and no history.
+  ///
+  /// Pass `withSampleData: true` for a week of invented production, dispatch,
+  /// wastage, attendance and payroll. Tests use it so they have something to
+  /// assert on; the shipped app does not, because a real factory should not
+  /// open onto somebody else's numbers.
+  DemoStore({this.withSampleData = false}) {
     _seed();
   }
+
+  final bool withSampleData;
 
   /// Artificial delay on every demo read and write, so loading states and
   /// disabled submit buttons are visible rather than flashing past. Widget
@@ -248,13 +257,19 @@ class DemoStore {
       {'code': 'RECYCLED', 'name': 'Recycled'},
     ]);
 
+    // The materials themselves are master data and always present; what is in
+    // the yard is not, so the opening quantity is zero unless sample data was
+    // asked for. With sample data Chemical starts under its threshold, which
+    // is what gives the low-stock banner and the alerts list something real.
     rawMaterials.addAll([
-      _material(raizinId, 'RM-RAIZIN', 'Raizin', 'RAIZIN', 1842.5, 400),
-      // Deliberately under its threshold, so the low-stock banner, the status
-      // chip and the alerts list all have something real to show.
-      _material(chemicalId, 'RM-CHEM', 'Chemical', 'CHEMICAL', 38.0, 50),
-      _material(colorId, 'RM-COLOR', 'Color', 'COLOR', 96.5, 20),
-      _material(regrindId, 'RM-REGRIND', 'Regrind', 'RECYCLED', 124.0, 0),
+      _material(raizinId, 'RM-RAIZIN', 'Raizin', 'RAIZIN',
+          withSampleData ? 1842.5 : 0, 400),
+      _material(chemicalId, 'RM-CHEM', 'Chemical', 'CHEMICAL',
+          withSampleData ? 38.0 : 0, 50),
+      _material(colorId, 'RM-COLOR', 'Color', 'COLOR',
+          withSampleData ? 96.5 : 0, 20),
+      _material(regrindId, 'RM-REGRIND', 'Regrind', 'RECYCLED',
+          withSampleData ? 124.0 : 0, 0),
     ]);
 
     machines.addAll([
@@ -365,11 +380,12 @@ class DemoStore {
           'bundle_weight_kg': bundleWeights[order],
           'pipes_per_bundle': pipesPerBundle[order],
           'pipes_per_bag': pipesPerBag[order],
-          'quantity_bags': openingBags[key] ?? 0,
+          'quantity_bags': withSampleData ? (openingBags[key] ?? 0) : 0,
           'bag_weight_kg': null,
           'diameter_mm': size['diameter_mm'],
           'active': true,
-          'quantity_bundles': openingBundles[key] ?? 30,
+          'quantity_bundles':
+              withSampleData ? (openingBundles[key] ?? 30) : 0,
           'stock_weight_kg': 0.0,
           'minimum_stock': 15,
           'status': 'GOOD',
@@ -414,10 +430,14 @@ class DemoStore {
       },
     ]);
 
-    staff.addAll([
-      _person(adminId, 'Factory Admin', 'EMP-001', 'ADMIN',
-          hasLogin: true, joinedOn: '2021-04-01', salaryDay: 1,
-          employeeType: 'OFFICE'),
+    staff.add(_person(adminId, 'Factory Admin', 'EMP-001', 'ADMIN',
+        hasLogin: true, joinedOn: '2021-04-01', salaryDay: 1,
+        employeeType: 'OFFICE'));
+
+    // Invented people, and everything recorded against them, only exist in a
+    // sample run. A clean install starts with the administrator alone.
+    if (withSampleData) {
+      staff.addAll([
       _person(raviId, 'Ravi Kumar', 'EMP-101', 'OPERATOR',
           hasLogin: true, joinedOn: '2023-06-12', salaryDay: 7),
       _person('66666666-6666-4666-8666-000000000003', 'Suresh Patel', 'EMP-102',
@@ -433,12 +453,13 @@ class DemoStore {
       _person('66666666-6666-4666-8666-000000000006', 'Lakha Bhai', 'EMP-201',
           'OPERATOR', joinedOn: '2026-02-01', salaryDay: 7,
           employeeType: 'LABOURER'),
-    ]);
+      ]);
 
-    _assign(raviId, machine1, shiftMorning);
-    _assign('66666666-6666-4666-8666-000000000003', machine2, shiftMorning);
-    _assign('66666666-6666-4666-8666-000000000004', machine3, shiftNight);
-    _assign('66666666-6666-4666-8666-000000000005', machine4, shiftNight);
+      _assign(raviId, machine1, shiftMorning);
+      _assign('66666666-6666-4666-8666-000000000003', machine2, shiftMorning);
+      _assign('66666666-6666-4666-8666-000000000004', machine3, shiftNight);
+      _assign('66666666-6666-4666-8666-000000000005', machine4, shiftNight);
+    }
 
     for (final machine in machines) {
       machineProducts[machine['id'] as String] = {
@@ -480,16 +501,18 @@ class DemoStore {
       'code': 'RM-REGRIND',
       'name': 'Regrind',
       'unit': 'kg',
-      'quantity': 124.0,
-      'total_recovered_kg': 186.5,
-      'total_consumed_kg': 62.5,
+      'quantity': withSampleData ? 124.0 : 0.0,
+      'total_recovered_kg': withSampleData ? 186.5 : 0.0,
+      'total_consumed_kg': withSampleData ? 62.5 : 0.0,
     });
 
-    _seedProduction();
-    _seedDispatch();
-    _seedWastage();
-    _seedStaff();
-    _seedNotifications();
+    if (withSampleData) {
+      _seedProduction();
+      _seedDispatch();
+      _seedWastage();
+      _seedStaff();
+      _seedNotifications();
+    }
     refreshStatuses();
   }
 

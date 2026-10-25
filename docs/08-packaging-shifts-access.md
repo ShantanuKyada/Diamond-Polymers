@@ -921,3 +921,61 @@ in SQL and the key in Dart, and excludes the demo store, which mirrors the
 database rather than reading it.
 
 Migration `0023_retire_unread_setting.sql`.
+
+## A43. A clean start — RESOLVED
+
+> *"Clean all the dummy data of employees, salaries, production, materials.
+> Keep the master data as it is."*
+
+The question that decides this one is **what counts as master data**. The answer
+used here: anything the factory cannot record a single entry without, and nothing
+that is a record of work.
+
+| Kept | Removed |
+|---|---|
+| Machines, shifts | Production, material batches, wastage, shredding |
+| Pipe types, sizes, products, **their packaging** | Dispatch and its lines |
+| Raw material definitions **and reorder levels** | Attendance, payslips, payroll periods, salary payments, structures, advances, adjustments |
+| Employee types and roles | Every stock movement, in all three ledgers |
+| Settings, factory identity | Notifications and their read marks |
+| One administrator, `EMP-001` | The four invented operators and their machine assignments |
+| | Every balance, reset to zero |
+
+Packaging is the easy one to get wrong. `pipes_per_bag` and `bundle_weight_kg`
+look like figures, so a sweep aimed at "materials" takes them — and then nobody
+can record a bag, because the database has no way to weigh one (A26). They are
+the product's definition, not its stock, and they stay. `clean_start_test.dart`
+asserts exactly that.
+
+### Three places, because there are three copies of the data
+
+1. **The demo app.** `DemoStore` now seeds an empty factory by default;
+   `DemoStore(withSampleData: true)` brings back the week of invented work. The
+   tests ask for it, the shipped APK does not. One flag rather than two stores,
+   so the sample data cannot drift away from the real shape.
+2. **A fresh install.** `seed.sql` is now master data and one administrator —
+   211 lines instead of 503. Everything invented moved to `seed_sample.sql`,
+   which the test harness loads on top and a live project never runs.
+3. **A database already seeded for a demo.** `supabase/checks/clean_demo_data.sql`,
+   one transaction, safe to run twice, with eight verification rows that must all
+   read `true`.
+
+### Who survives the live cleanup
+
+Not "everybody except EMP-001". The script keeps anybody with `auth_user_id`
+set — a person who has been given a login is a real employee, added after the
+demo, and deleting them because they are not the administrator is the one
+mistake this script could make that nobody would notice until that person tried
+to sign in. The sample operators have no login, which is what distinguishes
+them.
+
+The ledgers have no delete policy, by design: the running app may only append to
+them. This script deletes directly because it is maintenance run by the owner in
+the SQL editor, not by the app — and that is the only place in the system where
+that is true.
+
+`supabase/tests/clean_demo_data.test.mjs` rehearses it: seed everything, add a
+month of payroll through the real RPCs so the pay tables are not trivially empty,
+run the script, prove the masters and the administrator survive and the balances
+read zero, run it again, and then record fresh production on what is left — which
+is the actual claim being made, that the factory can start working immediately.

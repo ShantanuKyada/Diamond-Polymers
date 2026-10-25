@@ -38,8 +38,9 @@ ProviderScope demoScope({
   required Widget child,
   String? signedInProfileId,
   DemoStore? store,
+  bool withSampleData = false,
 }) {
-  final demoStore = store ?? DemoStore();
+  final demoStore = store ?? DemoStore(withSampleData: withSampleData);
   if (signedInProfileId != null) {
     demoStore.signedInProfileId = signedInProfileId;
   }

@@ -113,7 +113,7 @@ supabase/migrations/0012_payroll_schema.sql       attendance, advances, payslips
 supabase/migrations/0013_payroll_rpc.sql          punches, payroll run, finalise
 supabase/migrations/0014_payroll_views_rls.sql    payroll RLS — privacy lives here
 supabase/migrations/0015_packaging_shifts_access.sql  bags, two shifts, admin-only material entry
-supabase/seed.sql                                 demo data
+supabase/seed.sql                                 master data and one administrator
 supabase/seed_manufacturing.sql                   products, weights, a closed loop
 ```
 
@@ -133,10 +133,35 @@ select * from public.v_stock_reconciliation where not ok;
 Zero rows is correct. Any row means a stock movement wrote a balance that its
 ledger does not explain.
 
+### Which seed to run (A43)
+
+There are two, and a real factory runs only the first.
+
+| File | What it puts in | Run it on a live project? |
+|---|---|---|
+| `seed.sql` | Machines, shifts, pipe types and sizes, products and their packaging, material definitions and reorder levels, employee types, settings — and one administrator, `EMP-001`. Every balance zero, no history. | **Yes.** This is the install. |
+| `seed_sample.sql` | Four invented operators, their machine assignments, and a week of production, dispatch, wastage and material movements. | **No.** Demos and the test suites only. |
+| `seed_manufacturing.sql` | Product weights and a closed material loop the tests assert on. | Only on a scratch project. |
+
+A seed that invents people leaves somebody deleting strangers on their first day,
+which is why the staff moved out of `seed.sql`. Real employees are added in the
+app, under **Employees**.
+
+If a project was already seeded for a demonstration and now has to be handed over
+as an empty system, run `supabase/checks/clean_demo_data.sql`. It removes every
+record of work — production, batches, wastage, shredding, dispatch, attendance,
+payroll, advances, notifications, every stock movement and the sample operators —
+resets the balances to zero, and keeps the master data, the packaging rules, the
+administrator, and anybody who has since been given a login. It is one
+transaction, it is safe to run twice, and it prints eight verification rows that
+must all read `true`. **Take a backup first.** It is exercised by
+`supabase/tests/clean_demo_data.test.mjs`, which seeds a database, adds a month
+of payroll, runs the script and then records fresh production on what is left.
+
 ## 3. Create logins and link them to profiles
 
-The seed creates staff *profiles* but no logins, because an operator can exist as
-a factory record without an app account (A3).
+`seed.sql` creates the administrator's *profile* but no login, because a person
+can exist as a factory record without an app account (A3).
 
 **Dashboard → Authentication → Users → Add user**, with *Auto Confirm User*
 ticked:
@@ -144,13 +169,14 @@ ticked:
 | Email | Links to | Role |
 |---|---|---|
 | `admin@diamondpolymers.local` | EMP-001 Factory Admin | ADMIN |
-| `ravi@diamondpolymers.local` | EMP-101 Ravi Kumar | OPERATOR |
+
+That is the only one the install needs. Everybody else gets a profile in the app
+first, under **Employees**, and then a login the same way.
 
 Then link each one. Signed in as an administrator, the app calls:
 
 ```sql
 select public.link_profile_to_auth_user('EMP-001', 'admin@diamondpolymers.local');
-select public.link_profile_to_auth_user('EMP-101', 'ravi@diamondpolymers.local');
 ```
 
 It matches the email case-insensitively and refuses to move a login that already

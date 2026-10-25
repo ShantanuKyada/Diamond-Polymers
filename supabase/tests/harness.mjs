@@ -103,7 +103,14 @@ export async function build({ seed = true, quiet = false, upto = null } = {}) {
     if (cut < 0) throw new Error(`unknown migration: ${upto}`);
     files.splice(cut + 1);
   } else if (seed) {
-    files.push(`${SUP}/seed.sql`, `${SUP}/seed_manufacturing.sql`);
+    // seed.sql is what a real factory runs: master data and one administrator.
+    // The invented operators and their week of work live in seed_sample.sql,
+    // which the suites need and a live install must never run.
+    files.push(
+      `${SUP}/seed.sql`,
+      `${SUP}/seed_sample.sql`,
+      `${SUP}/seed_manufacturing.sql`,
+    );
   }
 
   for (const f of files) {

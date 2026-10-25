@@ -40,12 +40,14 @@ Diamond-Polymers-main/
 │   ├── lib/features/         one folder per feature: data / domain / presentation
 │   │     auth dashboard dispatch inventory masters mixture
 │   │     notifications production reports shell staff wastage
-│   ├── test/                 10 Flutter test files
+│   ├── test/                 15 Flutter test files
 │   └── tool/serve_web.mjs    serves a web build on the local network
 ├── supabase/
 │   ├── migrations/           0001 … 0015, applied in order
-│   ├── seed.sql              demo data (masters, a week of activity)
+│   ├── seed.sql              a real install: master data, one administrator
+│   ├── seed_sample.sql       invented staff and a week of work — demos only
 │   ├── seed_manufacturing.sql
+│   ├── checks/               scripts run by hand in the SQL editor
 │   └── tests/                database tests on in-process Postgres (PGlite)
 ├── docs/                     decisions, setup, status, module write-ups
 ├── .github/workflows/        build-apk.yml (live), build-demo-apk.yml (demo)
@@ -106,8 +108,8 @@ There are no placeholder screens left. `PlaceholderScreen` was deleted.
 | Check | Command | Result |
 |---|---|---|
 | Static analysis | `cd app && flutter analyze` | No issues |
-| Flutter tests | `cd app && flutter test` | **184 passed** |
-| Database tests | `cd supabase/tests && npm install && npm test` | **644 passed** (83 + 103 + 57 + 88 + 83 + 107 + 41 + 82) |
+| Flutter tests | `cd app && flutter test` | **189 passed**, 2 fail on an old Flutter — see §9 |
+| Database tests | `cd supabase/tests && npm install && npm test` | **711 passed** (83 + 103 + 57 + 88 + 83 + 107 + 41 + 82 + 67) |
 | Release APK | `flutter build apk --release …` | Builds locally in ~2–4 min |
 
 One of those suites (`api_coverage.test.mjs`) reads every Supabase call out of
@@ -218,6 +220,12 @@ In rough order of importance:
 6. **DEMO DATA ribbon** is on every screen of the demo APK — deliberate, easy to
    remove if unwanted for client demos.
 7. **Demo data does not persist.** Restarting the demo app restores the seed.
+   Since A43 that seed is an *empty* factory: master data and one administrator,
+   with no invented people and every balance at zero. The old week of activity
+   still exists — `DemoStore(withSampleData: true)`, which the tests use — but a
+   client opening the APK now sees a system waiting for its first entry rather
+   than somebody else's numbers. `supabase/checks/clean_demo_data.sql` does the
+   same to a live database that was seeded for demonstration.
 8. **APKs are signed with the debug key.** Fine for sideloading; a Play Store
    release needs a proper signing key.
 9. Not modelled at all, by design: recipes and expected yield, repacking
