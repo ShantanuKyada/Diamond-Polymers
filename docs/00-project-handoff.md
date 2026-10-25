@@ -4,7 +4,11 @@
 what exists, what works, what has been verified, what is still open, and how to
 pick the work up without starting over.
 
-Last updated: 23 September 2026.
+Last updated: 26 October 2026.
+
+The repository lives at
+https://github.com/ShantanuKyada/Diamond-Polymers (private, default branch
+`main`).
 
 ---
 
@@ -192,10 +196,12 @@ likely to be questioned:
 
 In rough order of importance:
 
-1. **Push to a remote.** The project is now a git repository on branch `main`
-   with one commit covering everything, but it exists only on this machine.
-   Until it is pushed to a private remote, a disk failure still loses it, and
-   the GitHub Actions workflows cannot run.
+1. **Build with the Flutter version the project targets.** CI pins **3.41.6**
+   (`.github/workflows/*.yml`). On an older Flutter, two payroll widget tests
+   fail because `find.byType(FilledButton)` does not match a button built with
+   `FilledButton.icon` — the `.icon` constructors only return the base type
+   from 3.41 onwards. The code is fine; the toolchain is not. Check with
+   `flutter --version` before trusting a local test run.
 2. **Apply 0015 to the live Supabase project**, then build a live APK and walk
    through the new features against real data. Follow `docs/10-applying-0015.md`;
    the pre-flight and verify scripts are in `supabase/checks/`.
