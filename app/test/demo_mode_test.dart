@@ -26,7 +26,7 @@ void main() {
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
 
-      await tester.pumpWidget(demoScope(child: const DiamondPolymersApp()));
+      await tester.pumpWidget(demoScope(withSampleData: true, child: const DiamondPolymersApp()));
       await tester.pumpAndSettle();
 
       expect(find.widgetWithText(FilledButton, 'Sign in'), findsOneWidget);
@@ -55,7 +55,7 @@ void main() {
 
     testWidgets('signs in as an operator and reaches the operator home',
         (tester) async {
-      await tester.pumpWidget(demoScope(child: const DiamondPolymersApp()));
+      await tester.pumpWidget(demoScope(withSampleData: true, child: const DiamondPolymersApp()));
       await tester.pumpAndSettle();
 
       await tester.enterText(
@@ -82,7 +82,7 @@ void main() {
 
   group('the demo repositories keep the rules the database keeps', () {
     test('a mixture short on one material deducts nothing at all', () async {
-      final store = DemoStore();
+      final store = DemoStore(withSampleData: true);
       final repository = DemoMixtureRepository(store..signedInProfileId = DemoStore.adminId);
 
       final chemicalBefore =
@@ -121,7 +121,7 @@ void main() {
     });
 
     test('a successful mixture deducts every line', () async {
-      final store = DemoStore();
+      final store = DemoStore(withSampleData: true);
       final repository = DemoMixtureRepository(store..signedInProfileId = DemoStore.adminId);
 
       final before = store.materialById(DemoStore.raizinId)!['quantity'] as num;
@@ -143,7 +143,7 @@ void main() {
 
     test('a retried submission is reported as a duplicate, not applied twice',
         () async {
-      final store = DemoStore();
+      final store = DemoStore(withSampleData: true);
       final repository = DemoMixtureRepository(store..signedInProfileId = DemoStore.adminId);
       const ref = 'ref-retry';
 
@@ -172,7 +172,7 @@ void main() {
     });
 
     test('an adjustment cannot drive stock below zero', () async {
-      final store = DemoStore();
+      final store = DemoStore(withSampleData: true);
       final repository = DemoInventoryRepository(store);
 
       await expectLater(
@@ -191,7 +191,7 @@ void main() {
     });
 
     test('an adjustment without a reason is refused', () async {
-      final store = DemoStore();
+      final store = DemoStore(withSampleData: true);
       final repository = DemoInventoryRepository(store);
 
       await expectLater(
@@ -210,7 +210,7 @@ void main() {
     });
 
     test('stock-in raises the balance and clears a low-stock status', () async {
-      final store = DemoStore();
+      final store = DemoStore(withSampleData: true);
       final repository = DemoInventoryRepository(store);
 
       expect(store.materialById(DemoStore.chemicalId)!['status'], 'LOW');
@@ -228,7 +228,7 @@ void main() {
 
   group('the demo dashboards agree with the store', () {
     test('admin totals are derived, not hard-coded', () async {
-      final store = DemoStore();
+      final store = DemoStore(withSampleData: true);
       final dashboard = await DemoDashboardRepository(store).loadAdmin(
         DateTime.now(),
       );
@@ -253,7 +253,7 @@ void main() {
     });
 
     test('the operator dashboard reports only that operator', () async {
-      final store = DemoStore();
+      final store = DemoStore(withSampleData: true);
       final dashboard = await DemoDashboardRepository(store).loadOperator(
         DateTime.now(),
       );

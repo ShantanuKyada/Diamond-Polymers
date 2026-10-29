@@ -4,7 +4,11 @@
 what exists, what works, what has been verified, what is still open, and how to
 pick the work up without starting over.
 
-Last updated: 23 September 2026.
+Last updated: 26 October 2026.
+
+The repository lives at
+https://github.com/ShantanuKyada/Diamond-Polymers (private, default branch
+`main`).
 
 ---
 
@@ -36,12 +40,14 @@ Diamond-Polymers-main/
 │   ├── lib/features/         one folder per feature: data / domain / presentation
 │   │     auth dashboard dispatch inventory masters mixture
 │   │     notifications production reports shell staff wastage
-│   ├── test/                 10 Flutter test files
+│   ├── test/                 15 Flutter test files
 │   └── tool/serve_web.mjs    serves a web build on the local network
 ├── supabase/
 │   ├── migrations/           0001 … 0015, applied in order
-│   ├── seed.sql              demo data (masters, a week of activity)
+│   ├── seed.sql              a real install: master data, one administrator
+│   ├── seed_sample.sql       invented staff and a week of work — demos only
 │   ├── seed_manufacturing.sql
+│   ├── checks/               scripts run by hand in the SQL editor
 │   └── tests/                database tests on in-process Postgres (PGlite)
 ├── docs/                     decisions, setup, status, module write-ups
 ├── .github/workflows/        build-apk.yml (live), build-demo-apk.yml (demo)
@@ -102,8 +108,8 @@ There are no placeholder screens left. `PlaceholderScreen` was deleted.
 | Check | Command | Result |
 |---|---|---|
 | Static analysis | `cd app && flutter analyze` | No issues |
-| Flutter tests | `cd app && flutter test` | **184 passed** |
-| Database tests | `cd supabase/tests && npm install && npm test` | **644 passed** (83 + 103 + 57 + 88 + 83 + 107 + 41 + 82) |
+| Flutter tests | `cd app && flutter test` | **189 passed**, 2 fail on an old Flutter — see §9 |
+| Database tests | `cd supabase/tests && npm install && npm test` | **711 passed** (83 + 103 + 57 + 88 + 83 + 107 + 41 + 82 + 67) |
 | Release APK | `flutter build apk --release …` | Builds locally in ~2–4 min |
 
 One of those suites (`api_coverage.test.mjs`) reads every Supabase call out of
@@ -192,10 +198,12 @@ likely to be questioned:
 
 In rough order of importance:
 
-1. **Push to a remote.** The project is now a git repository on branch `main`
-   with one commit covering everything, but it exists only on this machine.
-   Until it is pushed to a private remote, a disk failure still loses it, and
-   the GitHub Actions workflows cannot run.
+1. **Build with the Flutter version the project targets.** CI pins **3.41.6**
+   (`.github/workflows/*.yml`). On an older Flutter, two payroll widget tests
+   fail because `find.byType(FilledButton)` does not match a button built with
+   `FilledButton.icon` — the `.icon` constructors only return the base type
+   from 3.41 onwards. The code is fine; the toolchain is not. Check with
+   `flutter --version` before trusting a local test run.
 2. **Apply 0015 to the live Supabase project**, then build a live APK and walk
    through the new features against real data. Follow `docs/10-applying-0015.md`;
    the pre-flight and verify scripts are in `supabase/checks/`.
@@ -212,6 +220,12 @@ In rough order of importance:
 6. **DEMO DATA ribbon** is on every screen of the demo APK — deliberate, easy to
    remove if unwanted for client demos.
 7. **Demo data does not persist.** Restarting the demo app restores the seed.
+   Since A43 that seed is an *empty* factory: master data and one administrator,
+   with no invented people and every balance at zero. The old week of activity
+   still exists — `DemoStore(withSampleData: true)`, which the tests use — but a
+   client opening the APK now sees a system waiting for its first entry rather
+   than somebody else's numbers. `supabase/checks/clean_demo_data.sql` does the
+   same to a live database that was seeded for demonstration.
 8. **APKs are signed with the debug key.** Fine for sideloading; a Play Store
    release needs a proper signing key.
 9. Not modelled at all, by design: recipes and expected yield, repacking

@@ -29,7 +29,7 @@ void main() {
     await tester.pumpWidget(
       // Acting as the administrator: these are admin screens, and the payroll
       // twins now show a caller only what the policies would let them see.
-      demoScope(
+      demoScope(withSampleData: true, 
         signedInProfileId: DemoStore.adminId,
         child: MaterialApp(theme: AppTheme.light(), home: screen),
       ),
@@ -54,7 +54,7 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
-    await tester.pumpWidget(demoScope(child: const DiamondPolymersApp()));
+    await tester.pumpWidget(demoScope(withSampleData: true, child: const DiamondPolymersApp()));
     await tester.pumpAndSettle();
 
     await tester.enterText(

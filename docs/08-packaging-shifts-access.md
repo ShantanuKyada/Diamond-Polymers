@@ -922,14 +922,72 @@ database rather than reading it.
 
 Migration `0023_retire_unread_setting.sql`.
 
-## A43. The logo at launch, and emptying the demonstration factory — RESOLVED
+## A43. A clean start — RESOLVED
 
-Two things asked together on the day the factory starts using the app: make the
-logo the thing you see when it opens, and clear the sample data.
+> *"Clean all the dummy data of employees, salaries, production, materials.
+> Keep the master data as it is."*
+
+The question that decides this one is **what counts as master data**. The answer
+used here: anything the factory cannot record a single entry without, and nothing
+that is a record of work.
+
+| Kept | Removed |
+|---|---|
+| Machines, shifts | Production, material batches, wastage, shredding |
+| Pipe types, sizes, products, **their packaging** | Dispatch and its lines |
+| Raw material definitions **and reorder levels** | Attendance, payslips, payroll periods, salary payments, structures, advances, adjustments |
+| Employee types and roles | Every stock movement, in all three ledgers |
+| Settings, factory identity | Notifications and their read marks |
+| One administrator, `EMP-001` | The four invented operators and their machine assignments |
+| | Every balance, reset to zero |
+
+Packaging is the easy one to get wrong. `pipes_per_bag` and `bundle_weight_kg`
+look like figures, so a sweep aimed at "materials" takes them — and then nobody
+can record a bag, because the database has no way to weigh one (A26). They are
+the product's definition, not its stock, and they stay. `clean_start_test.dart`
+asserts exactly that.
+
+### Three places, because there are three copies of the data
+
+1. **The demo app.** `DemoStore` now seeds an empty factory by default;
+   `DemoStore(withSampleData: true)` brings back the week of invented work. The
+   tests ask for it, the shipped APK does not. One flag rather than two stores,
+   so the sample data cannot drift away from the real shape.
+2. **A fresh install.** `seed.sql` is now master data and one administrator —
+   211 lines instead of 503. Everything invented moved to `seed_sample.sql`,
+   which the test harness loads on top and a live project never runs.
+3. **A database already seeded for a demo.** `supabase/checks/clean_demo_data.sql`,
+   one transaction, safe to run twice, with eight verification rows that must all
+   read `true`.
+
+### Who survives the live cleanup
+
+Not "everybody except EMP-001". The script keeps anybody with `auth_user_id`
+set — a person who has been given a login is a real employee, added after the
+demo, and deleting them because they are not the administrator is the one
+mistake this script could make that nobody would notice until that person tried
+to sign in. The sample operators have no login, which is what distinguishes
+them.
+
+The ledgers have no delete policy, by design: the running app may only append to
+them. This script deletes directly because it is maintenance run by the owner in
+the SQL editor, not by the app — and that is the only place in the system where
+that is true.
+
+`supabase/tests/clean_demo_data.test.mjs` rehearses it: seed everything, add a
+month of payroll through the real RPCs so the pay tables are not trivially empty,
+run the script, prove the masters and the administrator survive and the balances
+read zero, run it again, and then record fresh production on what is left — which
+is the actual claim being made, that the factory can start working immediately.
+
+## A44. The logo at launch, and clearing everything — RESOLVED
+
+> *"Make sure that the logo appears instead of the application. And clear all
+> the sample data except admin login and one employee login shantanu."*
 
 ### The logo was already there; the splash was not
 
-The PDF sent the second time is byte-for-byte the one applied in A42 — same
+The PDF sent with this request is byte-for-byte the one applied in A42 — same
 MD5 — so the launcher icon needed nothing. What had been missed is the half
 second after you tap it. `drawable/launch_background.xml` was still the Flutter
 template: a white rectangle with the bitmap line commented out. The icon was
@@ -939,53 +997,69 @@ Three fixes, because Android draws that half second three different ways:
 
 | Android | What draws it | What was done |
 |---|---|---|
-| 11 and below | the app's `windowBackground` | `launch_background.xml` and `drawable-v21/` now centre the mark on the brand navy, at five densities |
-| 12 and above, light | the system splash API, ignoring `windowBackground` entirely | new `values-v31/styles.xml` sets `windowSplashScreenBackground` to the same navy, so the adaptive icon's own background disappears into it and the mark floats |
+| 11 and below | the app's `windowBackground` | `launch_background.xml` and `drawable-v21/` centre the mark on the brand navy, at five densities |
+| 12 and above, light | the system splash API, which ignores `windowBackground` entirely | new `values-v31/styles.xml` sets `windowSplashScreenBackground` to the same navy, so the adaptive icon's own background disappears into it and the mark floats |
 | 12 and above, dark | the same | new `values-night-v31/styles.xml` — this file has to exist, because night mode outranks platform version when Android picks a resource folder, and `values-night/` alone would have put the logo on black |
 
-### Clearing the demonstration factory
+### A43 kept the master data. This time it goes too.
 
-The seeded demo is four machines, two pipe types, eight products, five raw
-materials, three days of invented production and three operators who do not
-exist. Kept: the configuration, the employee roles, the shifts, the
-raw-material categories, and the two people who sign in — EMP-001 Factory Admin
-and EMP-101 Shantanu Kyada, logins intact.
+A43 answered *"keep the master data as it is"*. Asked again on the day the
+factory starts, the answer was the other one: the catalogue is four machines,
+two pipe types, eight products and five raw materials that were invented for a
+demonstration, and the factory does not own any of them. The decision was put
+in those terms and **clear everything** was chosen.
 
-The categories stay for a reason that is not sentiment. `shred_pipe()` stocks
-regrind against the **Recycled** category; deleting it would have broken
-shredding on day one, for a table that holds the factory's own taxonomy rather
-than invented data.
+So there are two live scripts, and they are not interchangeable:
 
-Three files, the shape every other migration-window script in this project
-takes: `checks/go_live_preflight.sql` counts what is about to go and refuses to
-pass if somebody outside the keep list holds a login,
-`scripts/go_live_clear_demo_data.sql` empties twenty-nine tables in one
-transaction, and `checks/go_live_verify.sql` confirms it. It is not a
-migration, and it is not in the migration list: it changes no schema and must
-run exactly once.
+| | Clears | Keeps |
+|---|---|---|
+| `checks/clean_demo_data.sql` (A43) | records of work | the catalogue, so the factory can record an entry the moment it finishes |
+| `scripts/go_live_clear_demo_data.sql` (A44) | records of work **and** the catalogue | configuration, employee roles, shifts, raw-material categories, and the two people who sign in |
 
-**Why the order is the whole script.** Several of these foreign keys are
-`ON DELETE RESTRICT`, which Postgres checks row by row rather than at the end
-of the statement, so a child emptied after its parent fails the run. A shred
-restricts the production entry whose bundle it destroyed; a production entry
-restricts the batch it came out of; a salary payment restricts the payslip it
-settles. And settings and roles both record who last touched them, pointing at
-profiles that are about to go — those references are released before the people
-are deleted.
+`docs/16-going-live.md` has the steps for the second, including what to enter
+first to build the real catalogue back up — nothing can be recorded until it
+exists.
 
-**The seed could not prove any of that.** It links no shred to a production
-entry, links no production to a batch, and carries no payroll at all: three
-restricting links and nine tables that a test would have been proved against
-while empty. Reordering the deletes against the bare seed passed. So the test
-in `migration_scripts.test.mjs` first brings the demo up to the shape of a live
-database — links the batches, links a shred, and runs a real month of payroll
-through the RPCs, advance and deduction and part payment and reversal — and
-only then clears it. Reordering now fails, which is the point of having it.
+Two things the second script keeps that look like candidates for deletion. The
+**raw-material categories** stay because `shred_pipe()` stocks regrind against
+the Recycled category: deleting it would break shredding on day one, for a
+table that holds the factory's own taxonomy rather than invented data. And the
+**keep list is two employee codes**, not "anybody with a login" as in A43,
+because that is what was asked — so the preflight's third row refuses to pass
+when somebody outside that list holds a login, and names them. It is the one
+mistake this script could make that nobody would notice until that person tried
+to sign in.
 
-The script also says what it deliberately does not do: a Supabase login
-outlives the employee record it was attached to, so row 09 of the verify lists
-any left behind rather than reaching into `auth.users`. They are removed where
-they belong, under Authentication → Users.
+### The order is the whole script, and the seed could not prove it
 
-`docs/16-going-live.md` has the steps, including what to enter first to build
-the real factory back up.
+Several of these foreign keys are `ON DELETE RESTRICT`, which Postgres checks
+row by row rather than at the end of the statement, so a child emptied after
+its parent fails the run. A shred restricts the production entry whose bundle
+it destroyed; a production entry restricts the batch it came out of; a salary
+payment restricts the payslip it settles. Settings and roles both record who
+last touched them, pointing at profiles that are about to go, so those
+references are released before the people are deleted.
+
+The seed links no shred to a production entry, links no production to a batch,
+and carries no payroll at all: three restricting links and nine tables that a
+test would otherwise be proved against while empty. Reordering the deletes and
+running them against the bare seed **passed**.
+
+That is not hypothetical. `clean_demo_data.sql` from A43 deletes
+`mixture_entries` before `production_entries`, and since A37 every production
+entry belongs to the batch that fed it. On the seed, where `mixture_entry_id`
+is null in all twenty-four rows, it ran clean and its test agreed. On a
+database that has actually made pipe it stopped dead:
+
+```
+update or delete on table "mixture_entries" violates RESTRICT setting of
+foreign key constraint "production_entries_mixture_entry_id_fkey"
+```
+
+The order is corrected, and both tests now bring the demonstration data up to
+the shape of a live database before clearing it — links the batches, links a
+shred, and runs a real month of payroll through the RPCs with an advance, a
+deduction, a part payment and a reversal. Each of the new script's three
+non-obvious steps was then checked by breaking it on purpose; all three fail
+now, and so does the A43 ordering, which is how the bug above was found.
+

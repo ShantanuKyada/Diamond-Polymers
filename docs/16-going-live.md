@@ -8,6 +8,19 @@ real reading will be added to a stock balance that was never true.
 
 This is a one-off. You run it once, on the day you start, and never again.
 
+> **There are two cleanup scripts. This guide is for the thorough one.**
+>
+> `supabase/checks/clean_demo_data.sql` clears the records of work and keeps
+> the catalogue — machines, pipe types, sizes, products, raw materials — so
+> the factory can record an entry the moment it finishes. Use it if that
+> catalogue is yours.
+>
+> `supabase/scripts/go_live_clear_demo_data.sql`, below, clears the catalogue
+> too, because the seeded one is invented. Nothing can be recorded until you
+> have entered the real one — step 5 says what to enter and in which order.
+>
+> Run one or the other, not both.
+
 ---
 
 ## What goes and what stays

@@ -52,7 +52,7 @@ void main() {
   }
 
   Future<void> signIn(WidgetTester tester, String email) async {
-    await tester.pumpWidget(demoScope(child: const DiamondPolymersApp()));
+    await tester.pumpWidget(demoScope(withSampleData: true, child: const DiamondPolymersApp()));
     await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextFormField, 'Email'), email);
     await tester.enterText(
@@ -307,7 +307,7 @@ void main() {
     testWidgets('the shift master offers two shifts and no way to add one',
         (tester) async {
       tallScreen(tester);
-      await tester.pumpWidget(demoScope(
+      await tester.pumpWidget(demoScope(withSampleData: true, 
         child: MaterialApp(theme: AppTheme.light(), home: const ShiftsScreen()),
       ));
       await tester.pumpAndSettle();
@@ -325,7 +325,7 @@ void main() {
     // only". The demo has to move with it, or the demo APK contradicts the
     // live one.
     test('an operator records material for their own machine', () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.raviId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.raviId;
       final repo = DemoMixtureRepository(store);
 
       final result = await repo.consume(
@@ -348,7 +348,7 @@ void main() {
     });
 
     test('but not for a machine they are not assigned to', () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.raviId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.raviId;
       final repo = DemoMixtureRepository(store);
 
       await expectLater(
@@ -367,7 +367,7 @@ void main() {
 
     test('production without a batch is refused, as in the database (A37)',
         () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.raviId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.raviId;
       final repo = DemoProductionRepository(store);
 
       await expectLater(
@@ -385,7 +385,7 @@ void main() {
     });
 
     test('only Morning and Night exist, and they cannot be renamed', () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.adminId;
       final repo = DemoMastersRepository(store);
 
       final names = (await repo.shifts()).map((s) => s.name).toList();
@@ -456,7 +456,7 @@ void main() {
   group('Payroll is a salary less what was taken (A38)', () {
     testWidgets('a payslip shows four figures and no overtime', (tester) async {
       tallScreen(tester);
-      await tester.pumpWidget(demoScope(
+      await tester.pumpWidget(demoScope(withSampleData: true, 
         signedInProfileId: DemoStore.adminId,
         child: MaterialApp(theme: AppTheme.light(), home: const SalaryScreen()),
       ));
@@ -474,7 +474,7 @@ void main() {
 
     testWidgets('the Salaries tab says what each person is on', (tester) async {
       tallScreen(tester);
-      await tester.pumpWidget(demoScope(
+      await tester.pumpWidget(demoScope(withSampleData: true, 
         signedInProfileId: DemoStore.adminId,
         child: MaterialApp(theme: AppTheme.light(), home: const SalaryScreen()),
       ));
@@ -488,7 +488,7 @@ void main() {
     });
 
     test('the demo pays the salary whatever the attendance says', () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.adminId;
       final repo = DemoStaffRepository(store);
       final month = DateTime.now();
 
@@ -508,7 +508,7 @@ void main() {
     });
 
     test('an advance comes off the next payslip, once', () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.adminId;
       final repo = DemoStaffRepository(store);
       final month = DateTime.now();
       final ganesh = (await repo.staffPay())
@@ -540,7 +540,7 @@ void main() {
     });
 
     test('recovery never pushes a payslip below zero', () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.adminId;
       final repo = DemoStaffRepository(store);
       final month = DateTime.now();
       final ganesh = (await repo.staffPay())
@@ -566,7 +566,7 @@ void main() {
     });
 
     test('a finalised month refuses every further change', () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.adminId;
       final repo = DemoStaffRepository(store);
       final month = DateTime.now();
 
@@ -591,7 +591,7 @@ void main() {
     });
 
     test('a deduction bigger than the salary is refused by name', () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.adminId;
       final repo = DemoStaffRepository(store);
       final month = DateTime.now();
       final ravi = (await repo.staffPay())
@@ -624,7 +624,7 @@ void main() {
   // fields payroll needed: a joining date and the day somebody is paid on.
   group('Worker profiles and salary payments (A39)', () {
     test('an admin creates a worker with a salary in one go', () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.adminId;
       final repo = DemoMastersRepository(store);
 
       await repo.saveStaff(
@@ -648,7 +648,7 @@ void main() {
     });
 
     test('a worker ID already in use is refused', () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.adminId;
       final repo = DemoMastersRepository(store);
 
       expect(
@@ -665,7 +665,7 @@ void main() {
 
     test('a joining date in the future, and an impossible salary day, are '
         'refused', () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.adminId;
       final repo = DemoMastersRepository(store);
 
       expect(
@@ -692,7 +692,7 @@ void main() {
 
     test('somebody already on the roll with no joining date still reads',
         () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.adminId;
       final repo = DemoMastersRepository(store);
 
       // Ganesh predates both fields. A screen has to render that, not crash on
@@ -706,7 +706,7 @@ void main() {
 
     // The brief's own worked example, through the demo twin.
     test('5000 salary, 2000 advance, 3000 paid on salary day', () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.adminId;
       final masters = DemoMastersRepository(store);
       final staff = DemoStaffRepository(store);
       final month = DateTime.now();
@@ -762,7 +762,7 @@ void main() {
     });
 
     test('partial payments add up, and a retry does not pay twice', () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.adminId;
       final staff = DemoStaffRepository(store);
       final month = DateTime.now();
 
@@ -802,7 +802,7 @@ void main() {
 
     test('a reversal gives the money back without erasing the record',
         () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.adminId;
       final staff = DemoStaffRepository(store);
       final month = DateTime.now();
 
@@ -838,7 +838,7 @@ void main() {
 
     test('a salary entirely taken as advances reads as paid, not owed',
         () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.adminId;
       final staff = DemoStaffRepository(store);
       final month = DateTime.now();
 
@@ -867,7 +867,7 @@ void main() {
 
     test('the monthly overview never loses money between the two columns',
         () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.adminId;
       final staff = DemoStaffRepository(store);
       final month = DateTime.now();
 
@@ -890,7 +890,7 @@ void main() {
     testWidgets('the payslip card shows what is paid and what is left',
         (tester) async {
       tallScreen(tester);
-      await tester.pumpWidget(demoScope(
+      await tester.pumpWidget(demoScope(withSampleData: true, 
         signedInProfileId: DemoStore.adminId,
         child: MaterialApp(theme: AppTheme.light(), home: const SalaryScreen()),
       ));
@@ -911,7 +911,7 @@ void main() {
 
     testWidgets('a draft month offers no way to pay', (tester) async {
       tallScreen(tester);
-      await tester.pumpWidget(demoScope(
+      await tester.pumpWidget(demoScope(withSampleData: true, 
         signedInProfileId: DemoStore.adminId,
         child: MaterialApp(theme: AppTheme.light(), home: const SalaryScreen()),
       ));
@@ -926,7 +926,7 @@ void main() {
     testWidgets('the worker form carries a joining date, salary and salary day',
         (tester) async {
       tallScreen(tester);
-      await tester.pumpWidget(demoScope(
+      await tester.pumpWidget(demoScope(withSampleData: true, 
         signedInProfileId: DemoStore.adminId,
         child:
             MaterialApp(theme: AppTheme.light(), home: const OperatorsScreen()),
@@ -948,7 +948,7 @@ void main() {
     testWidgets('adding an employee starts by asking what kind they are',
         (tester) async {
       tallScreen(tester);
-      await tester.pumpWidget(demoScope(
+      await tester.pumpWidget(demoScope(withSampleData: true, 
         signedInProfileId: DemoStore.adminId,
         child:
             MaterialApp(theme: AppTheme.light(), home: const OperatorsScreen()),
@@ -980,9 +980,9 @@ void main() {
     testWidgets('and a labourer added through the form really is one',
         (tester) async {
       tallScreen(tester);
-      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.adminId;
 
-      await tester.pumpWidget(demoScope(
+      await tester.pumpWidget(demoScope(withSampleData: true, 
         store: store,
         child:
             MaterialApp(theme: AppTheme.light(), home: const OperatorsScreen()),
@@ -1032,7 +1032,7 @@ void main() {
 
     test('the salary slip prints the advances and payments behind the figure',
         () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.adminId;
       final staff = DemoStaffRepository(store);
       final lastMonth = DateTime(DateTime.now().year, DateTime.now().month - 1, 1);
 
@@ -1086,7 +1086,7 @@ void main() {
       });
 
       test('everything a slip puts on the page is drawable', () async {
-        final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+        final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.adminId;
         final staff = DemoStaffRepository(store);
         final lastMonth =
             DateTime(DateTime.now().year, DateTime.now().month - 1, 1);
@@ -1122,7 +1122,7 @@ void main() {
   group('A worker sees their own pay (A39)', () {
     test('and nobody else\'s, which the demo now enforces as the policies do',
         () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.raviId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.raviId;
       final staff = DemoStaffRepository(store);
 
       final mine = await staff.payslips();
@@ -1138,7 +1138,7 @@ void main() {
     });
 
     test('an administrator still sees everybody', () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.adminId;
       final staff = DemoStaffRepository(store);
 
       final all = await staff.payslips();
@@ -1148,7 +1148,7 @@ void main() {
     test('nobody signed in sees nothing at all', () async {
       // What the policies do without an auth.uid(), and therefore what the
       // demo has to do with no signed-in profile.
-      final staff = DemoStaffRepository(DemoStore());
+      final staff = DemoStaffRepository(DemoStore(withSampleData: true));
       expect(await staff.payslips(), isEmpty);
       expect(await staff.staffPay(), isEmpty);
     });
@@ -1367,7 +1367,7 @@ void main() {
   // A41: the three roles became master data, so the factory can add their own.
   group('The factory names its own roles (A41)', () {
     test('a new role is created with a code made from its name', () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.adminId;
       final repo = DemoMastersRepository(store);
 
       final made = await repo.saveEmployeeType(
@@ -1388,7 +1388,7 @@ void main() {
     });
 
     test('a role defaults to not running machines', () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.adminId;
       final repo = DemoMastersRepository(store);
 
       await repo.saveEmployeeType(name: 'Helper');
@@ -1401,7 +1401,7 @@ void main() {
     });
 
     test('two roles of the same name are refused', () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.adminId;
       final repo = DemoMastersRepository(store);
 
       await repo.saveEmployeeType(name: 'Helper');
@@ -1413,7 +1413,7 @@ void main() {
     });
 
     test('somebody can be put on a role the factory invented', () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.adminId;
       final repo = DemoMastersRepository(store);
 
       await repo.saveEmployeeType(name: 'Fitter', runsMachines: true);
@@ -1435,7 +1435,7 @@ void main() {
     });
 
     test('a role nobody has heard of is refused', () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.adminId;
       final repo = DemoMastersRepository(store);
 
       expect(
@@ -1451,7 +1451,7 @@ void main() {
     });
 
     test('renaming a role does not strip what it can do', () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.adminId;
       final repo = DemoMastersRepository(store);
 
       await repo.saveEmployeeType(name: 'Fitter', runsMachines: true);
@@ -1470,7 +1470,7 @@ void main() {
     });
 
     test('a role somebody is on cannot be switched off', () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.adminId;
       final repo = DemoMastersRepository(store);
 
       final labourer = (await repo.employeeTypes())
@@ -1486,7 +1486,7 @@ void main() {
     });
 
     test('Operator cannot be switched off or grounded', () async {
-      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.adminId;
       final repo = DemoMastersRepository(store);
 
       final op = (await repo.employeeTypes())
@@ -1510,7 +1510,7 @@ void main() {
     testWidgets('the roles screen lists them with how many hold each',
         (tester) async {
       tallScreen(tester);
-      await tester.pumpWidget(demoScope(
+      await tester.pumpWidget(demoScope(withSampleData: true, 
         signedInProfileId: DemoStore.adminId,
         child: MaterialApp(
             theme: AppTheme.light(), home: const EmployeeRolesScreen()),
@@ -1530,14 +1530,14 @@ void main() {
 
     testWidgets('a new role appears on the employee form', (tester) async {
       tallScreen(tester);
-      final store = DemoStore()..signedInProfileId = DemoStore.adminId;
+      final store = DemoStore(withSampleData: true)..signedInProfileId = DemoStore.adminId;
 
       await tester.runAsync(() async {
         await DemoMastersRepository(store)
             .saveEmployeeType(name: 'Supervisor', runsMachines: true);
       });
 
-      await tester.pumpWidget(demoScope(
+      await tester.pumpWidget(demoScope(withSampleData: true, 
         store: store,
         child:
             MaterialApp(theme: AppTheme.light(), home: const OperatorsScreen()),
