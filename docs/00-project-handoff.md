@@ -246,3 +246,9 @@ In rough order of importance:
 | `08-packaging-shifts-access.md` | September 2026 change request, A24–A33, verification |
 | `09-screens-and-configuration.md` | Screen inventory, what is configurable, what stays a literal |
 | `10-applying-0015.md` | Step-by-step for applying 0015 to the live project |
+| `11-applying-0019.md` | Step-by-step for applying 0019 (simple payroll) |
+| `12-applying-0020.md` | Step-by-step for applying 0020 (profiles, salary payments) |
+| `13-applying-0021.md` | Step-by-step for applying 0021 (employee types, any machine) |
+| `14-signing-the-apk.md` | Signing releases so a new APK installs as an update |
+| `15-applying-0022.md` | Step-by-step for applying 0022 (roles the factory defines) |
+| `16-going-live.md` | Clearing the demonstration factory before real work starts |

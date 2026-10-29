@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12 took the splash screen away from the app.
+
+         From API 31 the system draws it: our windowBackground in
+         drawable/launch_background.xml is ignored, and what appears instead is
+         the launcher icon on windowSplashScreenBackground. Leaving that unset
+         puts the logo on the theme's white, which is the one place in the
+         launch where the brand navy is missing.
+
+         Setting it to the same navy the adaptive icon is built on makes the
+         icon's own background disappear into the splash, so the mark floats on
+         navy exactly as it does on the home screen. values/styles.xml still
+         covers Android 11 and below, where we draw the splash ourselves. -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowSplashScreenBackground">@color/ic_launcher_background</item>
+    </style>
+    <!-- Theme applied as soon as the process has started, and behind the
+         Flutter UI while it runs. -->
+    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">?android:colorBackground</item>
+    </style>
+</resources>

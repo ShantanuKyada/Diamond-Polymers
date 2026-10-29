@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The same splash as values-v31, for a device in dark mode.
+
+         This file has to exist. Night mode outranks platform version when
+         Android picks a resource folder, so a phone on Android 12 with dark
+         mode on would otherwise fall back to values-night/styles.xml, which
+         knows nothing about the splash screen, and show the logo on black. -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:windowSplashScreenBackground">@color/ic_launcher_background</item>
+    </style>
+    <!-- Theme applied as soon as the process has started, and behind the
+         Flutter UI while it runs. -->
+    <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:windowBackground">?android:colorBackground</item>
+    </style>
+</resources>

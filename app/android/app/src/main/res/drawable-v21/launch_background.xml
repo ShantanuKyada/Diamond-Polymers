@@ -1,12 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Modify this file to customize your launch splash screen -->
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="?android:colorBackground" />
+<!--
+  What Android shows between the tap and the first Flutter frame.
 
-    <!-- You can insert your own image assets here -->
-    <!-- <item>
+  The template left this a blank sheet with the logo commented out, so the app
+  opened on an empty screen. It shows the factory's mark on the brand navy
+  instead — the same colour the adaptive icon sits on, so the icon appears to
+  open into the splash rather than cutting to something unrelated.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/ic_launcher_background" />
+    <item>
         <bitmap
             android:gravity="center"
             android:src="@mipmap/launch_image" />
-    </item> -->
+    </item>
 </layer-list>

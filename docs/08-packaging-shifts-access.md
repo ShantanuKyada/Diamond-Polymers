@@ -921,3 +921,71 @@ in SQL and the key in Dart, and excludes the demo store, which mirrors the
 database rather than reading it.
 
 Migration `0023_retire_unread_setting.sql`.
+
+## A43. The logo at launch, and emptying the demonstration factory — RESOLVED
+
+Two things asked together on the day the factory starts using the app: make the
+logo the thing you see when it opens, and clear the sample data.
+
+### The logo was already there; the splash was not
+
+The PDF sent the second time is byte-for-byte the one applied in A42 — same
+MD5 — so the launcher icon needed nothing. What had been missed is the half
+second after you tap it. `drawable/launch_background.xml` was still the Flutter
+template: a white rectangle with the bitmap line commented out. The icon was
+the factory's, and then the app opened into a blank white page.
+
+Three fixes, because Android draws that half second three different ways:
+
+| Android | What draws it | What was done |
+|---|---|---|
+| 11 and below | the app's `windowBackground` | `launch_background.xml` and `drawable-v21/` now centre the mark on the brand navy, at five densities |
+| 12 and above, light | the system splash API, ignoring `windowBackground` entirely | new `values-v31/styles.xml` sets `windowSplashScreenBackground` to the same navy, so the adaptive icon's own background disappears into it and the mark floats |
+| 12 and above, dark | the same | new `values-night-v31/styles.xml` — this file has to exist, because night mode outranks platform version when Android picks a resource folder, and `values-night/` alone would have put the logo on black |
+
+### Clearing the demonstration factory
+
+The seeded demo is four machines, two pipe types, eight products, five raw
+materials, three days of invented production and three operators who do not
+exist. Kept: the configuration, the employee roles, the shifts, the
+raw-material categories, and the two people who sign in — EMP-001 Factory Admin
+and EMP-101 Shantanu Kyada, logins intact.
+
+The categories stay for a reason that is not sentiment. `shred_pipe()` stocks
+regrind against the **Recycled** category; deleting it would have broken
+shredding on day one, for a table that holds the factory's own taxonomy rather
+than invented data.
+
+Three files, the shape every other migration-window script in this project
+takes: `checks/go_live_preflight.sql` counts what is about to go and refuses to
+pass if somebody outside the keep list holds a login,
+`scripts/go_live_clear_demo_data.sql` empties twenty-nine tables in one
+transaction, and `checks/go_live_verify.sql` confirms it. It is not a
+migration, and it is not in the migration list: it changes no schema and must
+run exactly once.
+
+**Why the order is the whole script.** Several of these foreign keys are
+`ON DELETE RESTRICT`, which Postgres checks row by row rather than at the end
+of the statement, so a child emptied after its parent fails the run. A shred
+restricts the production entry whose bundle it destroyed; a production entry
+restricts the batch it came out of; a salary payment restricts the payslip it
+settles. And settings and roles both record who last touched them, pointing at
+profiles that are about to go — those references are released before the people
+are deleted.
+
+**The seed could not prove any of that.** It links no shred to a production
+entry, links no production to a batch, and carries no payroll at all: three
+restricting links and nine tables that a test would have been proved against
+while empty. Reordering the deletes against the bare seed passed. So the test
+in `migration_scripts.test.mjs` first brings the demo up to the shape of a live
+database — links the batches, links a shred, and runs a real month of payroll
+through the RPCs, advance and deduction and part payment and reversal — and
+only then clears it. Reordering now fails, which is the point of having it.
+
+The script also says what it deliberately does not do: a Supabase login
+outlives the employee record it was attached to, so row 09 of the verify lists
+any left behind rather than reaching into `auth.users`. They are removed where
+they belong, under Authentication → Users.
+
+`docs/16-going-live.md` has the steps, including what to enter first to build
+the real factory back up.
