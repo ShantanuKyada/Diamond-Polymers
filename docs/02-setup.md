@@ -158,6 +158,15 @@ must all read `true`. **Take a backup first.** It is exercised by
 `supabase/tests/clean_demo_data.test.mjs`, which seeds a database, adds a month
 of payroll, runs the script and then records fresh production on what is left.
 
+That script keeps the catalogue, so the factory can record an entry the moment
+it finishes. If the catalogue is invented too — demonstration machines, pipe
+types and materials the factory does not own — then
+`supabase/scripts/go_live_clear_demo_data.sql` clears that as well, and leaves
+only the configuration, the employee roles, the shifts, the raw-material
+categories and the people who sign in. Nothing can be recorded until the real
+catalogue is entered. `docs/16-going-live.md` has the steps, and the order to
+enter it in.
+
 ## 3. Create logins and link them to profiles
 
 `seed.sql` creates the administrator's *profile* but no login, because a person

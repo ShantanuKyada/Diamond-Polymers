@@ -730,7 +730,7 @@ class _PayslipCard extends ConsumerWidget {
               ],
             ),
 
-            // Days absent, which payroll does not read (A49).
+            // Days absent, which payroll does not read (A50).
             //
             // Pay is the monthly figure less what an administrator enters by
             // hand; nothing here prorates it. The app was recording attendance
@@ -1871,7 +1871,7 @@ class _DeductionSheetState extends ConsumerState<_DeductionSheet> {
 }
 
 
-/// "3 days absent — not deducted", under a payslip (A49).
+/// "3 days absent — not deducted", under a payslip (A50).
 ///
 /// Silent when nobody was absent, and silent when attendance could not be
 /// loaded: this is context for a decision, not part of the payslip, and a

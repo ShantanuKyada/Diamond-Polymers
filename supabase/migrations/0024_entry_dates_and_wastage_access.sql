@@ -1,11 +1,11 @@
 -- =============================================================================
 -- 0024_entry_dates_and_wastage_access.sql — two holes found in the audit
 --
---   A44. consume_reusable_wastage() was the one stock-moving write any signed-in
+--   A45. consume_reusable_wastage() was the one stock-moving write any signed-in
 --        person could call. Every other one is admin-only or goes through
 --        app.assert_can_record(). Now it is admin-only too.
 --
---   A45. An entry's date was limited by the date picker and by nothing else.
+--   A46. An entry's date was limited by the date picker and by nothing else.
 --        The rule now lives in the database, where it applies to every path.
 --
 -- Both are enforcement, not behaviour: nothing that was allowed through the app
@@ -13,7 +13,7 @@
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------
--- A45. How far back an entry may be dated
+-- A46. How far back an entry may be dated
 --
 -- The production form has always offered the last 30 days and no future, which
 -- is the right rule and was in the wrong place: the UI. "Do not rely only on
@@ -82,7 +82,7 @@ end;
 $fn$;
 
 comment on function app.assert_entry_date(date, text) is
-  'A45: refuses a future date, or one older than entry_backdating_days.';
+  'A46: refuses a future date, or one older than entry_backdating_days.';
 
 -- Triggers rather than edits to five RPC bodies.
 --
@@ -130,7 +130,7 @@ end
 $mig$;
 
 -- -----------------------------------------------------------------------------
--- A44. Consuming recycled stock is an administrator's act
+-- A45. Consuming recycled stock is an administrator's act
 --
 -- It moves a factory-wide balance that belongs to nobody's machine, so there is
 -- no "their own" for app.assert_can_record() to check — which is why it had no
@@ -152,7 +152,7 @@ security definer
 set search_path = public, pg_temp
 as $fn$
 declare
-  v_caller uuid := app.require_admin();   -- A44: was app.require_profile()
+  v_caller uuid := app.require_admin();   -- A45: was app.require_profile()
   v_mode   text := app.setting('reusable_wastage_mode', 'SEPARATE');
   v_txn    uuid;
   v_left   numeric(14, 3);

@@ -54,11 +54,11 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen> {
   DateTime _entryDate = DateTime.now();
 
   /// Set once somebody picks a date by hand, after which the shift stops
-  /// choosing it for them (A46).
+  /// choosing it for them (A47).
   bool _dateChosenByHand = false;
 
   /// The entry [_attemptRef] was minted for, so a retry of the same entry
-  /// keeps its key and a corrected one does not (A47).
+  /// keeps its key and a corrected one does not (A48).
   String? _attemptSignature;
 
   String? _shiftId;
@@ -508,7 +508,7 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen> {
     );
   }
 
-  /// A night shift belongs to the day it started (A46).
+  /// A night shift belongs to the day it started (A47).
   ///
   /// At 02:00 the operator is finishing the shift that began at 18:00
   /// yesterday, and that is the day the bundles count against — otherwise one
@@ -533,7 +533,7 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen> {
       // would sit outside the range if the window is set to today only.
       initialDate: _entryDate.isBefore(earliest) ? earliest : _entryDate,
       // Backdating a shift is routine; recording tomorrow's output is not.
-      // Both ends are the database's rule (A45), read from the same setting
+      // Both ends are the database's rule (A46), read from the same setting
       // rather than hard-coded here as well.
       firstDate: earliest,
       lastDate: today,

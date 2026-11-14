@@ -77,6 +77,29 @@ await db.query(`
   where p.employee_code = 'EMP-001'
   limit 1`);
 
+// -----------------------------------------------------------------------------
+// A37: production belongs to the batch it came out of, and a shred names the
+// bundle it destroyed.
+//
+// The seeds leave both links null, and both are ON DELETE RESTRICT — checked
+// row by row rather than at the end of the statement. Without this the script
+// is rehearsed against a shape the live database never has, and a delete order
+// that cannot work there passes here.
+// -----------------------------------------------------------------------------
+await db.exec(`
+  update public.production_entries p
+  set mixture_entry_id = (select m.id from public.mixture_entries m
+                          where m.machine_id = p.machine_id
+                          order by m.id limit 1)
+  where exists (select 1 from public.mixture_entries m
+                where m.machine_id = p.machine_id);
+
+  update public.shred_entries
+  set production_entry_id = (select id from public.production_entries
+                             order by id limit 1)
+  where id = (select id from public.shred_entries order by id limit 1);
+`);
+
 // =============================================================================
 section('Before: the seeded database has plenty to lose');
 
@@ -96,6 +119,12 @@ for (const [label, table] of [
   const n = await count(table);
   check(`there is ${label} to remove`, n > 0, `${table} is empty`);
 }
+check('production is linked to the batch that fed it, as on the live database',
+  Number((await one(`select count(*) as n from public.production_entries
+                      where mixture_entry_id is not null`)).n) > 0);
+check('a shred names the bundle it destroyed',
+  Number((await one(`select count(*) as n from public.shred_entries
+                      where production_entry_id is not null`)).n) > 0);
 check('there are more people than the administrator', await count('profiles') > 1);
 check('something is actually in stock',
   Number((await one(

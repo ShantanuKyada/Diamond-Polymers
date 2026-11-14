@@ -1,5 +1,5 @@
-// 0024: who may consume recycled stock (A44), and when an entry may be dated
-// (A45).
+// 0024: who may consume recycled stock (A45), and when an entry may be dated
+// (A46).
 //
 // Both rules existed before this migration — one in nobody's head, one in a
 // date picker. This suite is what makes them real, so it tests the paths a
@@ -65,7 +65,7 @@ const day = (offset) => {
 };
 
 // =============================================================================
-section('A44 — consuming recycled stock is an administrator\'s act');
+section('A45 — consuming recycled stock is an administrator\'s act');
 
 const opConsume = await state(() => asUser(db, RAVI_AUTH, () =>
   db.query(`select public.consume_reusable_wastage($1,$2,$3)`,
@@ -91,7 +91,7 @@ check('and the balance went down by what was consumed',
     [REGRIND])).n) === beforeRecycled - 1);
 
 // =============================================================================
-section('A45 — an entry cannot be dated in the future');
+section('A46 — an entry cannot be dated in the future');
 
 for (const [label, table, cols, vals] of [
   ['production', 'production_entries',
@@ -125,7 +125,7 @@ check('a dispatch dated tomorrow is refused too', futureDispatch === 'DP005',
   `${futureDispatch}`);
 
 // =============================================================================
-section('A45 — nor further back than the factory allows');
+section('A46 — nor further back than the factory allows');
 
 const old = await state(() => asUser(db, ADMIN_AUTH, async () => {
   const batch = await chargeBatch(db, {
@@ -150,7 +150,7 @@ const withinWindow = await state(() => asUser(db, ADMIN_AUTH, async () => {
 check('29 days back goes through', withinWindow === null, `${withinWindow}`);
 
 // =============================================================================
-section('A45 — the window is the factory\'s to set');
+section('A46 — the window is the factory\'s to set');
 
 await db.query(
   `update app_settings set value = '0' where key = 'entry_backdating_days'`);
@@ -181,7 +181,7 @@ await db.query(
   `update app_settings set value = '30' where key = 'entry_backdating_days'`);
 
 // =============================================================================
-section('A45 — history is not re-judged');
+section('A46 — history is not re-judged');
 
 // The rule is on INSERT only. A factory that shortens the window must not find
 // that last month's entries have become invalid, or that a report over them

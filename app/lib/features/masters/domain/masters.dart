@@ -90,7 +90,7 @@ class Shift {
   bool get crossesMidnight => _minutes(endTime) <= _minutes(startTime);
 
   /// The day this shift's work counts against, given the moment it is being
-  /// recorded (A46).
+  /// recorded (A47).
   ///
   /// A night shift that began at 18:00 on the 14th is still the 14th's shift
   /// at 02:00 on the 15th — one night is one day's output, and the factory

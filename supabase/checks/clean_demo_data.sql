@@ -32,12 +32,19 @@ begin;
 -- owner, not the app, so it deletes directly — and only here.
 -- -----------------------------------------------------------------------------
 
-delete from public.mixture_entry_lines;
-delete from public.mixture_entries;
-
+-- Order matters here, and it is not the order these tables were written in.
+-- Two of these foreign keys are ON DELETE RESTRICT, which Postgres checks row
+-- by row rather than at the end of the statement: a shred restricts the
+-- production entry whose bundle it destroyed, and since A37 a production entry
+-- restricts the batch that fed it. Emptying the batches first ran clean on a
+-- seeded database, where mixture_entry_id is null in every row, and stopped
+-- dead on one that had actually made pipe.
 delete from public.shred_entries;
 delete from public.wastage_entries;
 delete from public.production_entries;
+
+delete from public.mixture_entry_lines;
+delete from public.mixture_entries;
 
 delete from public.dispatch_lines;
 delete from public.dispatches;

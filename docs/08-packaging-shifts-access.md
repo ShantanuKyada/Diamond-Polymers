@@ -980,13 +980,97 @@ run the script, prove the masters and the administrator survive and the balances
 read zero, run it again, and then record fresh production on what is left — which
 is the actual claim being made, that the factory can start working immediately.
 
-## A44–A49. What the audit found — RESOLVED
+## A44. The logo at launch, and clearing everything — RESOLVED
+
+> *"Make sure that the logo appears instead of the application. And clear all
+> the sample data except admin login and one employee login shantanu."*
+
+### The logo was already there; the splash was not
+
+The PDF sent with this request is byte-for-byte the one applied in A42 — same
+MD5 — so the launcher icon needed nothing. What had been missed is the half
+second after you tap it. `drawable/launch_background.xml` was still the Flutter
+template: a white rectangle with the bitmap line commented out. The icon was
+the factory's, and then the app opened into a blank white page.
+
+Three fixes, because Android draws that half second three different ways:
+
+| Android | What draws it | What was done |
+|---|---|---|
+| 11 and below | the app's `windowBackground` | `launch_background.xml` and `drawable-v21/` centre the mark on the brand navy, at five densities |
+| 12 and above, light | the system splash API, which ignores `windowBackground` entirely | new `values-v31/styles.xml` sets `windowSplashScreenBackground` to the same navy, so the adaptive icon's own background disappears into it and the mark floats |
+| 12 and above, dark | the same | new `values-night-v31/styles.xml` — this file has to exist, because night mode outranks platform version when Android picks a resource folder, and `values-night/` alone would have put the logo on black |
+
+### A43 kept the master data. This time it goes too.
+
+A43 answered *"keep the master data as it is"*. Asked again on the day the
+factory starts, the answer was the other one: the catalogue is four machines,
+two pipe types, eight products and five raw materials that were invented for a
+demonstration, and the factory does not own any of them. The decision was put
+in those terms and **clear everything** was chosen.
+
+So there are two live scripts, and they are not interchangeable:
+
+| | Clears | Keeps |
+|---|---|---|
+| `checks/clean_demo_data.sql` (A43) | records of work | the catalogue, so the factory can record an entry the moment it finishes |
+| `scripts/go_live_clear_demo_data.sql` (A44) | records of work **and** the catalogue | configuration, employee roles, shifts, raw-material categories, and the two people who sign in |
+
+`docs/16-going-live.md` has the steps for the second, including what to enter
+first to build the real catalogue back up — nothing can be recorded until it
+exists.
+
+Two things the second script keeps that look like candidates for deletion. The
+**raw-material categories** stay because `shred_pipe()` stocks regrind against
+the Recycled category: deleting it would break shredding on day one, for a
+table that holds the factory's own taxonomy rather than invented data. And the
+**keep list is two employee codes**, not "anybody with a login" as in A43,
+because that is what was asked — so the preflight's third row refuses to pass
+when somebody outside that list holds a login, and names them. It is the one
+mistake this script could make that nobody would notice until that person tried
+to sign in.
+
+### The order is the whole script, and the seed could not prove it
+
+Several of these foreign keys are `ON DELETE RESTRICT`, which Postgres checks
+row by row rather than at the end of the statement, so a child emptied after
+its parent fails the run. A shred restricts the production entry whose bundle
+it destroyed; a production entry restricts the batch it came out of; a salary
+payment restricts the payslip it settles. Settings and roles both record who
+last touched them, pointing at profiles that are about to go, so those
+references are released before the people are deleted.
+
+The seed links no shred to a production entry, links no production to a batch,
+and carries no payroll at all: three restricting links and nine tables that a
+test would otherwise be proved against while empty. Reordering the deletes and
+running them against the bare seed **passed**.
+
+That is not hypothetical. `clean_demo_data.sql` from A43 deletes
+`mixture_entries` before `production_entries`, and since A37 every production
+entry belongs to the batch that fed it. On the seed, where `mixture_entry_id`
+is null in all twenty-four rows, it ran clean and its test agreed. On a
+database that has actually made pipe it stopped dead:
+
+```
+update or delete on table "mixture_entries" violates RESTRICT setting of
+foreign key constraint "production_entries_mixture_entry_id_fkey"
+```
+
+The order is corrected, and both tests now bring the demonstration data up to
+the shape of a live database before clearing it — links the batches, links a
+shred, and runs a real month of payroll through the RPCs with an advance, a
+deduction, a part payment and a reversal. Each of the new script's three
+non-obvious steps was then checked by breaking it on purpose; all three fail
+now, and so does the A43 ordering, which is how the bug above was found.
+
+
+## A45–A50. What the audit found — RESOLVED
 
 A full pass over access, calculations, naming, edge cases and flow. Six things
 were wrong or unclear; two more were raised as questions and answered by the
 factory rather than guessed at.
 
-### A44. Consuming recycled stock was open to everybody
+### A45. Consuming recycled stock was open to everybody
 
 `consume_reusable_wastage()` was the one stock-moving write with no role check.
 Every other one is `require_admin()` or goes through `app.assert_can_record()`;
@@ -1001,7 +1085,7 @@ Admin-only now. It moves a balance that belongs to no particular machine, so
 there is no "their own" for `assert_can_record()` to check — which is how it
 ended up with no guard rather than the wrong one.
 
-### A45. An entry's date was limited by the date picker and nothing else
+### A46. An entry's date was limited by the date picker and nothing else
 
 The production form offered the last 30 days and no future. The database
 enforced neither. "Do not rely only on hiding the button" is the standard the
@@ -1016,7 +1100,7 @@ window must not make last month's entries retroactively invalid.
 The window is `entry_backdating_days`, default 30, on the Configuration screen.
 The date picker reads the same setting instead of carrying its own copy.
 
-### A46. A night shift belonged to two days
+### A47. A night shift belonged to two days
 
 Night runs 18:00–06:00. `entry_date` defaulted to the device's date, so a
 bundle recorded at 02:00 landed on the next calendar day — one shift split
@@ -1028,7 +1112,7 @@ picks a date by hand, after which the date is theirs.
 
 Only the small hours move: at 20:00 the shift started today.
 
-### A47. A corrected entry could be swallowed by its own retry
+### A48. A corrected entry could be swallowed by its own retry
 
 One `client_ref` was kept across retries, which is what makes a retry safe: if
 the first attempt reached the database and only the reply was lost, the second
@@ -1042,13 +1126,13 @@ the correction away under a message saying all was well.
 The key is now tied to a signature of what is being sent. Same entry, same key.
 Changed entry, new key.
 
-### A48. Monthly attendance ignored the month it was asked for
+### A49. Monthly attendance ignored the month it was asked for
 
 The demo repository returned every row whatever month was requested. Harmless
 while one screen asked for one month; the Salary screen asks for the month it
 is showing, and would have reported January's absences against June's payslip.
 
-### A49. Attendance and pay had no line between them
+### A50. Attendance and pay had no line between them
 
 Asked whether absences should prorate pay automatically. **The factory's
 answer: leave it manual.** Pay is the monthly figure less what an administrator

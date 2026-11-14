@@ -43,7 +43,7 @@ final currencySymbolProvider = Provider<String>(
   (ref) => settingOr(ref, 'currency_symbol', '₹'),
 );
 
-/// How many days back an entry may be dated (A45).
+/// How many days back an entry may be dated (A46).
 ///
 /// The date picker offers this window; the database enforces it, so the two
 /// have to read the same setting rather than each carrying its own 30.
