@@ -109,7 +109,7 @@ There are no placeholder screens left. `PlaceholderScreen` was deleted.
 |---|---|---|
 | Static analysis | `cd app && flutter analyze` | No issues |
 | Flutter tests | `cd app && flutter test` | **191** — run in CI; blocked locally, see §9 |
-| Database tests | `cd supabase/tests && npm install && npm test` | **784 passed** (83 + 103 + 57 + 88 + 83 + 107 + 42 + 104 + 69 + 35 + 13) |
+| Database tests | `cd supabase/tests && npm install && npm test` | **795 passed** (83 + 103 + 57 + 88 + 83 + 107 + 42 + 104 + 69 + 46 + 13) |
 | Release APK | `flutter build apk --release …` | Builds locally in ~2–4 min |
 
 One of those suites (`api_coverage.test.mjs`) reads every Supabase call out of
@@ -204,9 +204,11 @@ In rough order of importance:
    `FilledButton.icon` — the `.icon` constructors only return the base type
    from 3.41 onwards. The code is fine; the toolchain is not. Check with
    `flutter --version` before trusting a local test run.
-2. **Apply 0015 to the live Supabase project**, then build a live APK and walk
-   through the new features against real data. Follow `docs/10-applying-0015.md`;
-   the pre-flight and verify scripts are in `supabase/checks/`.
+2. **Apply 0015–0024 to the live Supabase project**, then build a live APK and
+   walk through the new features against real data. **`docs/16-going-live.md`
+   is the runbook** — database, credentials, APK and first sign-in, in order.
+   `supabase/scripts/apply_0015_to_0024.sql` is the whole window in one paste,
+   rehearsed by `supabase/tests/go_live.test.mjs`.
 3. **Duplicate folder.** `Diamond-Polymers-main/Diamond-Polymers-main/` is an
    older copy of the app (before demo mode and the latest screens). It is not
    used by anything. Delete it once you are sure, so nobody edits the wrong

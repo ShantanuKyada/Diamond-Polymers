@@ -49,7 +49,7 @@ const ADMIN_AUTH = randomUUID();
 await db.query(`insert into auth.users (id, email) values ($1,'admin@dp.local')`,
   [ADMIN_AUTH]);
 
-await db.exec(`
+const SEED_0014 = `
   insert into profiles (id, name, employee_code, role, auth_user_id) values
     ('${ADMIN}','Admin','EMP-001','ADMIN','${ADMIN_AUTH}'),
     ('${OP}','Operator','EMP-101','OPERATOR', null);
@@ -78,7 +78,9 @@ await db.exec(`
   -- case the migration has to handle rather than ignore.
   insert into machine_assignments (machine_id, operator_id, shift_id)
     values ('${MACHINE}','${OP}','${AFTERNOON}');
-`);
+`;
+
+await db.exec(SEED_0014);
 
 // History made through the RPCs, so the ledgers and the balance caches agree
 // the way they do on the live project.
@@ -162,13 +164,14 @@ check('the 0019 verify passes', Array.isArray(ver19) && ver19.every((r) => r.ok 
   Array.isArray(ver19) ? ver19.filter((r) => !r.ok).map((r) => r.check).join(', ') : ver19.error);
 
 // =============================================================================
-section('0020 … 0023 — profiles, employee types, roles, a retired setting');
+section('0020 … 0024 — profiles, types, roles, a retired setting, entry dates');
 
 for (const [mig, pre, ver] of [
   ['0020_worker_profiles_and_salary_payments.sql', '0020_preflight.sql', '0020_verify.sql'],
   ['0021_employee_types_and_any_machine.sql', '0021_preflight.sql', '0021_verify.sql'],
   ['0022_employee_roles_master.sql', '0022_preflight.sql', '0022_verify.sql'],
   ['0023_retire_unread_setting.sql', null, null],
+  ['0024_entry_dates_and_wastage_access.sql', null, null],
 ]) {
   const tag = mig.slice(0, 4);
   if (pre) {
@@ -214,6 +217,26 @@ check('the administrator can still sign in',
   Number((await db.query(
     `select count(*) as n from profiles where role='ADMIN' and auth_user_id is not null`
   )).rows[0].n) === 1);
+
+// What the step-by-step run left behind, read before anything else is written
+// to it. The section below records production and a dispatch, so comparing
+// against this database afterwards would be comparing against a different
+// question.
+const AFTER_MIGRATION = [
+  ['production entries', 'select count(*) as n from production_entries'],
+  ['shifts in use', 'select count(*) as n from shifts where active'],
+  ['raw material balance',
+    `select quantity as n from raw_material_stock where raw_material_id = '${RAIZIN}'`],
+  ['finished bundles',
+    'select coalesce(sum(quantity_bundles),0) as n from finished_goods_stock'],
+  ['settings', 'select count(*) as n from app_settings'],
+  ['ledger mismatches',
+    'select count(*) as n from v_stock_reconciliation where not ok'],
+];
+const stepByStep = {};
+for (const [label, q] of AFTER_MIGRATION) {
+  stepByStep[label] = Number((await db.query(q)).rows[0].n);
+}
 
 // =============================================================================
 section('The app works on the migrated database');
@@ -273,6 +296,68 @@ const dash = await asUser(db, ADMIN_AUTH, async () => {
   } catch (e) { return e.message; }
 });
 check('the admin dashboard loads', dash === null, dash ?? '');
+
+// =============================================================================
+section('The same window, pasted in one go');
+
+// scripts/apply_0015_to_0024.sql is what somebody actually runs: the ten files
+// concatenated, because pasting ten of them one after another in a migration
+// window is how one of them gets skipped. It has to land a 0014 database in
+// exactly the place the ten separate files do, and it has to survive being run
+// twice, because somebody will re-run it to be sure.
+const SCRIPTS = fileURLToPath(new URL('../scripts/', import.meta.url));
+const MIG_DIR = fileURLToPath(new URL('../migrations/', import.meta.url));
+const combined = readFileSync(`${SCRIPTS}apply_0015_to_0024.sql`, 'utf8');
+
+const MIGRATIONS = [
+  '0015_packaging_shifts_access.sql', '0016_operator_material_entry.sql',
+  '0017_factory_identity.sql', '0018_production_batch_link.sql',
+  '0019_simple_payroll.sql', '0020_worker_profiles_and_salary_payments.sql',
+  '0021_employee_types_and_any_machine.sql', '0022_employee_roles_master.sql',
+  '0023_retire_unread_setting.sql', '0024_entry_dates_and_wastage_access.sql',
+];
+
+// It is generated, so the first question is whether it is still made of what
+// it claims to be made of.
+const stale = MIGRATIONS.filter((name) =>
+  !combined.includes(readFileSync(`${MIG_DIR}${name}`, 'utf8').trim()));
+check('it still holds every migration, unedited', stale.length === 0,
+  `stale: ${stale.join(', ')}`);
+check('and in order',
+  MIGRATIONS.map((n) => combined.indexOf(n))
+    .every((at, i, all) => at > 0 && (i === 0 || at > all[i - 1])));
+
+// A second database at 0014, with the same history on it.
+const fresh = await build({ quiet: true, upto: '0014_payroll_views_rls.sql' });
+await fresh.query(`insert into auth.users (id, email) values ($1,'admin@dp.local')`,
+  [ADMIN_AUTH]);
+await fresh.exec(SEED_0014);
+await asUser(fresh, ADMIN_AUTH, async () => {
+  await fresh.query(`select public.add_raw_material_stock($1,$2,$3)`,
+    [RAIZIN, 1000, randomUUID()]);
+  for (const bundles of [9, 12, 7]) {
+    await fresh.query(`select public.record_production($1,$2,$3,$4,$5,$6,$7)`,
+      [MACHINE, AFTERNOON, TYPE, SIZE, bundles, randomUUID(), OP]);
+  }
+});
+
+const pasted = await (async () => {
+  try { await fresh.exec(combined); return null; } catch (e) { return e.message; }
+})();
+check('the whole file applies in one go', pasted === null, pasted ?? '');
+
+const twice = await (async () => {
+  try { await fresh.exec(combined); return null; } catch (e) { return e.message; }
+})();
+check('and a second time, unharmed', twice === null, twice ?? '');
+
+// And leaves the database where the ten separate files left the first one.
+for (const [label, q] of AFTER_MIGRATION) {
+  const b = Number((await fresh.query(q)).rows[0].n);
+  check(`${label}: same as the step-by-step run`, stepByStep[label] === b,
+    `${stepByStep[label]} vs ${b}`);
+}
+
 
 console.log(`\n${'═'.repeat(64)}\n  ${pass} passed, ${fail} failed\n${'═'.repeat(64)}`);
 if (fail) {

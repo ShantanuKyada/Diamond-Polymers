@@ -582,21 +582,48 @@ comment on column public.production_entries.wastage_used_kg is
 -- output_weight_kg now counts bag output as well. It is a stored generated
 -- column, so it is dropped and re-added; the three views that read it are
 -- recreated verbatim from 0009 below.
-drop view if exists public.v_daily_material_balance;
-drop view if exists public.v_production_material_balance;
-drop view if exists public.v_production_entries_weighted;
+--
+-- Guarded, because "safe to re-run" has to hold on a database that has gone
+-- past this migration and not only on one that has just reached it. 0018 adds
+-- v_batch_yield over this same column, so a second run of 0015 on a database
+-- at 0024 met a dependency it has no business knowing about and stopped at:
+--
+--   cannot drop column output_weight_kg of table production_entries because
+--   other objects depend on it
+--
+-- Checking whether the column already counts bags answers that without 0015
+-- having to keep a list of every view a later migration might add.
+do $mig$
+begin
+  if exists (
+    select 1
+    from pg_attrdef d
+    join pg_attribute a on a.attrelid = d.adrelid and a.attnum = d.adnum
+    where d.adrelid = 'public.production_entries'::regclass
+      and a.attname = 'output_weight_kg'
+      and pg_get_expr(d.adbin, d.adrelid) like '%bag_weight_kg%'
+  ) then
+    raise notice 'output_weight_kg already counts bags; leaving it alone.';
+    return;
+  end if;
 
-alter table public.production_entries drop column if exists output_weight_kg;
+  drop view if exists public.v_daily_material_balance;
+  drop view if exists public.v_production_material_balance;
+  drop view if exists public.v_production_entries_weighted;
 
-alter table public.production_entries
-  add column output_weight_kg numeric(14, 3)
-    generated always as (
-      case
-        when bundle_weight_kg is null and bag_weight_kg is null then null
-        else coalesce(bundle_quantity * bundle_weight_kg, 0)
-           + coalesce(bag_quantity * bag_weight_kg, 0)
-      end
-    ) stored;
+  alter table public.production_entries drop column if exists output_weight_kg;
+
+  alter table public.production_entries
+    add column output_weight_kg numeric(14, 3)
+      generated always as (
+        case
+          when bundle_weight_kg is null and bag_weight_kg is null then null
+          else coalesce(bundle_quantity * bundle_weight_kg, 0)
+             + coalesce(bag_quantity * bag_weight_kg, 0)
+        end
+      ) stored;
+end
+$mig$;
 
 create or replace view public.v_production_material_balance with (security_invoker = on) as
 with keys as (

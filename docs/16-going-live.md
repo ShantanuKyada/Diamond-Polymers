@@ -1,132 +1,232 @@
-# Going live: clearing the demonstration factory
+# Going live: the real backend, and an APK that talks to it
 
-The database you have been using still holds the factory it was seeded with:
-four machines, two pipe types, eight products, five raw materials and three
-days of invented production, plus three operators who do not exist. None of it
-is real. Before the floor starts entering real work, it has to go, or the first
-real reading will be added to a stock balance that was never true.
+The demo APK carries its own data and needs nothing. A live APK needs a
+Supabase project that matches the code, and credentials baked in at build
+time. This is the whole path, in order.
 
-This is a one-off. You run it once, on the day you start, and never again.
+**Three things stand between you and a working live APK.** None of them is
+code; all three are yours to do, because they need credentials that must not
+pass through anybody else's hands.
 
-> **There are two cleanup scripts. This guide is for the thorough one.**
->
-> `supabase/checks/clean_demo_data.sql` clears the records of work and keeps
-> the catalogue — machines, pipe types, sizes, products, raw materials — so
-> the factory can record an entry the moment it finishes. Use it if that
-> catalogue is yours.
->
-> `supabase/scripts/go_live_clear_demo_data.sql`, below, clears the catalogue
-> too, because the seeded one is invented. Nothing can be recorded until you
-> have entered the real one — step 5 says what to enter and in which order.
->
-> Run one or the other, not both.
+| | What | Where | Roughly |
+|---|---|---|---|
+| 1 | Bring the database from 0014 to 0024 | Supabase SQL editor | 15 min |
+| 2 | Put the URL and key in repository secrets | GitHub settings | 3 min |
+| 3 | Build the APK | GitHub Actions | 10 min, unattended |
 
 ---
 
-## What goes and what stays
+## 0. Where the project actually is
 
-**Cleared**
+Run this first. Everything below assumes the answer.
 
-- Everything the floor records: production, mixtures, shredding, wastage,
-  dispatch, every stock movement and every stock balance.
-- Everything the office records: attendance, salary structures, advances,
-  deductions, payroll runs, payslips and salary payments.
-- Machine assignments and notifications.
-- The demonstration catalogue: machines, pipe types, pipe sizes, pipe products
-  and raw materials.
-- Every employee except the two below.
+```sql
+select
+  to_regclass('public.pipe_products') is not null                as has_products,
+  exists (select 1 from information_schema.columns
+          where table_name = 'pipe_products' and column_name = 'pipes_per_bag')
+                                                                 as has_0015,
+  exists (select 1 from information_schema.columns
+          where table_name = 'production_entries'
+            and column_name = 'mixture_entry_id')                as has_0018,
+  exists (select 1 from public.app_settings
+          where key = 'entry_backdating_days')                   as has_0024;
+```
 
-**Kept**
+- All false but `has_products` → you are at **0014**. Follow step 1.
+- `has_0024` true → the database is already current. Skip to step 2.
+- `has_products` false → this is an empty project. Apply `migrations/0001`
+  through `0024` in order, following `docs/02-setup.md`, and note that
+  **0006 must be run on its own** — it adds enum values, and Postgres will not
+  let a new label be used in the transaction that created it.
 
-| | Why |
+---
+
+## 1. Bring the database to 0024
+
+### Back up first
+
+Supabase Dashboard → Database → Backups → take one, and wait for it to finish.
+Everything below is designed to be safe. A backup is what makes that claim
+cheap to test.
+
+### Pre-flight
+
+Paste `supabase/checks/0015_preflight.sql` into the SQL editor and run it.
+Seven rows come back. **Read all of them.** It will tell you which shift is
+about to be retired, how much history is riding on it, and whether the ledgers
+agree with the balance caches before anything moves. If the last row is false,
+stop — the balances are already wrong, and a migration is the wrong moment to
+discover it.
+
+### Apply
+
+Paste **`supabase/scripts/apply_0015_to_0024.sql`** — the whole file — and run
+it. That is ten migrations in order:
+
+| | |
 |---|---|
-| Your configuration (Configuration tab) | Decisions you have already made, factory name included |
-| Employee roles (Operator, Labourer, Office, anything you added) | Same |
-| Shifts (Morning, Night) | Same |
-| Raw-material categories (Raizin, Chemical, Color, Recycled) | Your own taxonomy, and shredding stocks regrind against **Recycled** — deleting it would break shredding on day one |
-| **EMP-001 Factory Admin** and **EMP-101 Shantanu Kyada**, logins intact | The two people who sign in |
+| 0015 | bags beside bundles, two shifts, editable profile |
+| 0016 | operators record their own material (reverses 0015's admin-only rule) |
+| 0017 | the factory's own name, address and GSTIN |
+| 0018 | a production entry knows the batch that fed it |
+| 0019 | the simplified payroll |
+| 0020 | worker profiles and salary payments |
+| 0021 | employee types, and running any machine |
+| 0022 | the roles the factory names for itself |
+| 0023 | retires two settings nothing read |
+| 0024 | entry dates enforced in the database; recycled stock admin-only |
+
+They travel together because none of them adds an enum value. The file is
+generated from `migrations/` by `supabase/scripts/build_apply_script.py`, and
+`supabase/tests/go_live.test.mjs` applies it to a database shaped like yours —
+three shifts, an operator on the one that disappears, material receipts and
+production posted through the real RPCs — then checks every production entry,
+the bundle total, both stock balances, the ledgers and the administrator's
+login. It also applies the ten files separately and proves both paths land in
+the same place, and that running the whole thing twice changes nothing.
+
+**If it stops partway**, read the error, fix the cause, and run the same file
+again. Every migration in it is written to be re-runnable, and the second run
+is tested.
+
+### Verify
+
+Run each of these and expect every row to read true:
+
+```
+supabase/checks/0015_verify.sql
+supabase/checks/0019_verify.sql
+supabase/checks/0020_verify.sql
+supabase/checks/0021_verify.sql
+supabase/checks/0022_verify.sql
+```
+
+Then the one that matters most:
+
+```sql
+select * from public.v_stock_reconciliation where not ok;
+```
+
+Zero rows. Any row means a stock movement wrote a balance its ledger does not
+explain, and you should restore the backup rather than carry on.
+
+`0015_verify.sql`'s last row may report operators stranded on the retired
+shift. That is information, not a failure: reassign them under **Employees**
+once the app is up.
+
+### If the project was seeded for a demonstration
+
+Two scripts, and they answer different questions:
+
+- `supabase/checks/clean_demo_data.sql` clears the records of work — production,
+  batches, wastage, dispatch, attendance, payroll, every stock movement and the
+  sample operators — and **keeps** the catalogue, so the factory can record an
+  entry the moment it finishes. It keeps anybody who already has a login.
+- `supabase/scripts/go_live_clear_demo_data.sql` clears the catalogue too,
+  because a seeded catalogue is invented.
+
+Both take a backup first, both are one transaction, both print verification
+rows that must all read true.
 
 ---
 
-## 1. Take a backup
+## 2. Put the credentials in repository secrets
 
-Supabase dashboard → **Database** → **Backups**.
+The build needs two values. **Do not paste them into a chat, an issue, or a
+commit.** GitHub's secret form is the only place they should go.
 
-There is no undo. Everything cleared is gone for good. Do not skip this.
+Supabase Dashboard → Project Settings → API:
 
-## 2. Pre-flight check
+| Secret name | What to paste |
+|---|---|
+| `SUPABASE_URL` | Project URL, `https://xxxx.supabase.co` |
+| `SUPABASE_ANON_KEY` | The **anon / publishable** key |
 
-Open the SQL editor and run `supabase/checks/go_live_preflight.sql`.
+**Never the `service_role` key.** It ignores row level security, and a key
+inside an APK is a key in every operator's pocket. The anon key is designed to
+ship in a client; the service key would hand the whole database to anyone who
+unzips the file.
 
-It writes nothing. Read all ten rows, and these three in particular:
+GitHub → the repository → Settings → Secrets and variables → Actions → *New
+repository secret*, twice.
 
-- **Row 01 and 02** must say `ok = true` and show an email beside each name. If
-  either says `NO LOGIN LINKED`, stop: that person cannot sign in now and
-  clearing the data will not change that. Fix the link first —
-  `docs/02-setup.md` §"Linking logins" covers it.
-- **Row 03** must say `ok = true`. If it is false it names somebody who is not
-  on the keep list and who has a login — somebody real you added since. Add
-  their employee code to the keep list in step 11 of the clearing script before
-  you run it, or they lose their record and their access.
+### While you are there: the signing key
 
-Rows 04 to 07 tell you what is about to be deleted. Row 04 names the people.
+Without it, Android refuses to install a new build over an old one — every CI
+run signs with a throwaway debug key, so each APK is a stranger to the one on
+the phone. `docs/14-signing-the-apk.md` has the `keytool` command. It produces
+four more secrets:
 
-## 3. Clear it
+```
+ANDROID_KEYSTORE_BASE64
+ANDROID_KEYSTORE_PASSWORD
+ANDROID_KEY_ALIAS
+ANDROID_KEY_PASSWORD
+```
 
-Run `supabase/scripts/go_live_clear_demo_data.sql`.
-
-The whole script is one transaction. If anything fails, nothing is deleted and
-you can fix the problem and run it again. It finishes with *Success. No rows
-returned*, which is what you want — it ends on `commit`, and a commit returns
-no rows.
-
-Running it twice is harmless.
-
-## 4. Verify
-
-Run `supabase/checks/go_live_verify.sql`.
-
-Rows 01 to 08 must all say `ok = true`. Row 09 is information rather than a
-pass or a fail: it lists any Supabase login left over with no employee record.
-Deleting an employee does not delete the login behind them, and a leftover
-login can still authenticate — it then finds no profile and gets nowhere,
-because every access rule in this database reads through the employee record.
-It is untidy rather than unsafe. Remove any that are listed under
-**Authentication → Users**.
-
-## 5. Build the factory back up, for real
-
-Sign in as Factory Admin and enter the real thing, in this order — each screen
-needs the one above it:
-
-1. **Raw materials** — what you actually buy, with real minimum-stock levels.
-2. **Pipe types** and **Pipe sizes**.
-3. **Pipe products** — a type and a size together, with the real bundle weight.
-4. **Machines**, and which products each one runs.
-5. **Employees** — everybody, on the right role. Operators get a login; a
-   labourer does not need one.
-6. **Opening stock** — enter what is physically in the store today as a
-   material receipt. Stock starts at zero, so whatever you do not enter, the
-   app will think you do not have.
-
-## 6. Hand out the APK
-
-Same build for everyone. If you have not set up the signing key yet
-(`docs/14-signing-the-apk.md`), every new APK still has to be installed over an
-uninstall rather than as an update.
+The build works without them and names the artifact
+`…-UNSIGNED-fresh-install-only` so nobody finds out on the factory floor.
+**Back the keystore up somewhere you will still have it in five years.** Lose
+it and no future build can ever update an installed app.
 
 ---
 
-## If something goes wrong
+## 3. Build the APK
 
-**The clearing script failed with a foreign key error.** Nothing was deleted —
-the transaction rolled back. Send the error text; it names the table and the
-constraint, which says exactly which order was wrong.
+With the secrets in place, **every push to `main` builds one automatically**.
+To build on demand:
 
-**Row 03 of the verify says more than two employees.** Somebody was re-added
-between the clearing and the verify, or the keep list was edited. Harmless;
-check who, in the Employees screen.
+```bash
+gh workflow run build-apk.yml --ref main
+```
 
-**Somebody cannot sign in afterwards.** Run `supabase/checks/diagnose_login.sql`
-— it reports, for one email, whether the login exists, whether an employee
-record points at it, and whether that record is active.
+Or GitHub → Actions → **Build APK** → *Run workflow*. The two input boxes let
+you paste a URL and key for a one-off build without storing them — which is
+how the one successful build so far was made.
+
+The run analyzes, runs the Flutter suite and the database suite, then builds.
+Download from the **Artifacts** section:
+
+| File | Install on |
+|---|---|
+| `app-release.apk` | anything — largest, safest to hand to a stranger |
+| `app-arm64-v8a-release.apk` | any phone from roughly 2015 on |
+| `app-armeabi-v7a-release.apk` | older 32-bit phones |
+
+---
+
+## 4. The first sign-in
+
+The database has profiles but no logins, because a person can be on the
+factory's roll without an app account (A3).
+
+1. Dashboard → Authentication → Users → **Add user**, *Auto Confirm User*
+   ticked, for the administrator.
+2. Link it, once, by hand — there is no signed-in admin yet to do it for you:
+
+```sql
+update public.profiles p
+set    auth_user_id = u.id
+from   auth.users u
+where  u.email = 'admin@diamondpolymers.local'
+  and  p.employee_code = 'EMP-001';
+```
+
+3. Sign in. Everybody else is added in the app under **Employees**, then given
+   a login the same way — from then on the app calls
+   `link_profile_to_auth_user()` and you never touch SQL again.
+
+If somebody cannot sign in, `supabase/checks/diagnose_login.sql` says why.
+
+---
+
+## 5. Before handing it to the floor
+
+- Open **More → Configuration → Products** and set **Pipes per bag** on the
+  products that are bagged. Until it is set, the Bags box stays disabled —
+  the database cannot weigh a bag without it (A26).
+- Check **How far back an entry may be dated** suits the factory. Default 30
+  days; 0 means today only (A46).
+- Record one production entry and one dispatch, then run the reconciliation
+  query again. It is the cheapest proof that the whole chain works.
