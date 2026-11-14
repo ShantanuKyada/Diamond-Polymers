@@ -135,6 +135,16 @@ class SettingSpec {
           'Recovering more mass than went in is impossible, so this catches a '
           'mistyped weight before it corrupts stock.',
     ),
+    'entry_backdating_days': SettingSpec(
+      kind: SettingKind.number,
+      label: 'How far back an entry may be dated',
+      min: 0,
+      max: 365,
+      suffix: 'days',
+      hint: 'Production, material, wastage, shredding and dispatch. 0 means '
+          'today only; a future date is never allowed. The database enforces '
+          'this, so it holds however the entry arrives.',
+    ),
 
     // ---- Text --------------------------------------------------------------
     'factory_name': SettingSpec(kind: SettingKind.text),

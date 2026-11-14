@@ -42,3 +42,15 @@ final wastageUnitProvider = Provider<String>(
 final currencySymbolProvider = Provider<String>(
   (ref) => settingOr(ref, 'currency_symbol', '₹'),
 );
+
+/// How many days back an entry may be dated (A45).
+///
+/// The date picker offers this window; the database enforces it, so the two
+/// have to read the same setting rather than each carrying its own 30.
+final entryBackdatingDaysProvider = Provider<int>((ref) {
+  final raw = settingOr(ref, 'entry_backdating_days', '30');
+  final parsed = int.tryParse(raw);
+  // A value the factory has typed badly should not leave somebody unable to
+  // date anything. Fall back to the documented default rather than to zero.
+  return (parsed == null || parsed < 0) ? 30 : parsed;
+});

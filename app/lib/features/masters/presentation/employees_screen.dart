@@ -16,8 +16,8 @@ import 'widgets/master_scaffold.dart';
 /// (A3) — common where one shared device sits on the floor. The tile therefore
 /// distinguishes "has no login" from "is inactive"; they are different problems
 /// with different fixes.
-class OperatorsScreen extends ConsumerWidget {
-  const OperatorsScreen({super.key});
+class EmployeesScreen extends ConsumerWidget {
+  const EmployeesScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

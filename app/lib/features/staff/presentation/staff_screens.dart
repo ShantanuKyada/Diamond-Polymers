@@ -13,8 +13,8 @@ import '../../../core/widgets/responsive.dart';
 import 'salary_slip_action.dart';
 
 /// Punches — who is on site today, and the month behind it (§33).
-class PunchesScreen extends ConsumerWidget {
-  const PunchesScreen({super.key});
+class AttendanceScreen extends ConsumerWidget {
+  const AttendanceScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -25,7 +25,7 @@ class PunchesScreen extends ConsumerWidget {
       length: 2,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Punches'),
+          title: const Text('Attendance'),
           bottom: const TabBar(
             tabs: [Tab(text: 'Today'), Tab(text: 'This month')],
           ),
@@ -728,6 +728,20 @@ class _PayslipCard extends ConsumerWidget {
                 // whether this person has been paid.
                 StatusChip(status: slip.status.wire),
               ],
+            ),
+
+            // Days absent, which payroll does not read (A49).
+            //
+            // Pay is the monthly figure less what an administrator enters by
+            // hand; nothing here prorates it. The app was recording attendance
+            // in one screen and calculating pay in another with no line
+            // between them, so the person deciding a deduction had to go and
+            // look it up. It is shown here because it is the number that
+            // decision is made from — and labelled so nobody reads it as
+            // something already taken off.
+            _AbsenceNote(
+              profileId: slip.profileId,
+              month: month,
             ),
             const Divider(height: 22),
             _Money(label: 'Monthly salary', value: slip.monthlySalary),
@@ -1853,5 +1867,49 @@ class _DeductionSheetState extends ConsumerState<_DeductionSheet> {
         _error = error.message;
       });
     }
+  }
+}
+
+
+/// "3 days absent — not deducted", under a payslip (A49).
+///
+/// Silent when nobody was absent, and silent when attendance could not be
+/// loaded: this is context for a decision, not part of the payslip, and a
+/// failure to fetch it must not make a payslip look wrong.
+class _AbsenceNote extends ConsumerWidget {
+  const _AbsenceNote({required this.profileId, required this.month});
+
+  final String profileId;
+  final DateTime month;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    final rows = ref.watch(monthlyAttendanceForProvider(month)).value;
+    if (rows == null) return const SizedBox.shrink();
+
+    final mine = rows.where((r) => r.profileId == profileId).firstOrNull;
+    final absent = mine?.absentDays ?? 0;
+    if (absent == 0) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        children: [
+          Icon(Icons.event_busy_outlined, size: 16, color: scheme.onSurfaceVariant),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              '$absent ${absent == 1 ? 'day' : 'days'} absent this month — '
+              'not deducted. Add a deduction if it should be.',
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

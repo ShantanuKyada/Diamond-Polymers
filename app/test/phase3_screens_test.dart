@@ -119,7 +119,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Material Entry'), findsOneWidget);
+      expect(find.text('Material entry'), findsOneWidget);
       expect(find.textContaining('Choose the machine'), findsOneWidget);
 
       await tester.tap(find.text('Machine 1'));

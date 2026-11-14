@@ -71,7 +71,7 @@ void main() {
 
       // The operator application: no admin destinations anywhere.
       expect(find.text('Home'), findsWidgets);
-      expect(find.text('My Entries'), findsWidgets);
+      expect(find.text('My entries'), findsWidgets);
       expect(find.text('Dispatch'), findsNothing);
 
       // The assignment the demo store seeded.

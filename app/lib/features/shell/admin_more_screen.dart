@@ -40,33 +40,22 @@ class AdminMoreScreen extends ConsumerWidget {
             ),
           ),
 
-          const SectionHeader(title: 'Operations'),
+          // Grouped by how often somebody opens it, not by which part of the
+          // schema it touches. Machines and Employees are set up once and
+          // then left alone for months; Material entry is opened every shift.
+          // Having them in one list made the daily screens harder to find.
+          const SectionHeader(title: 'Every day'),
           _LinkCard(
             items: [
               _Link(
                 icon: Icons.science_outlined,
-                label: 'Material Entry',
+                label: 'Material entry',
                 route: AppRoute.mixtureEntry,
               ),
               _Link(
                 icon: Icons.delete_outline_rounded,
                 label: 'Wastage',
                 route: AppRoute.adminWastage,
-              ),
-              _Link(
-                icon: Icons.precision_manufacturing_outlined,
-                label: 'Machines',
-                route: AppRoute.adminMachines,
-              ),
-              _Link(
-                icon: Icons.badge_outlined,
-                label: 'Employees',
-                route: AppRoute.adminOperators,
-              ),
-              _Link(
-                icon: Icons.workspaces_outline,
-                label: 'Employee roles',
-                route: AppRoute.adminEmployeeRoles,
               ),
               _Link(
                 icon: Icons.assessment_outlined,
@@ -81,15 +70,38 @@ class AdminMoreScreen extends ConsumerWidget {
           const SectionHeader(title: 'Staff'),
           _LinkCard(
             items: [
+              // "Punches" is payroll jargon, and the operator side of this
+              // same app already calls it Attendance. One word for one thing.
               _Link(
                 icon: Icons.how_to_reg_outlined,
-                label: 'Punches',
-                route: AppRoute.adminStaffPunches,
+                label: 'Attendance',
+                route: AppRoute.adminStaffAttendance,
               ),
               _Link(
                 icon: Icons.payments_outlined,
                 label: 'Salary',
                 route: AppRoute.adminStaffSalary,
+              ),
+            ],
+          ),
+
+          const SectionHeader(title: 'Factory setup'),
+          _LinkCard(
+            items: [
+              _Link(
+                icon: Icons.precision_manufacturing_outlined,
+                label: 'Machines',
+                route: AppRoute.adminMachines,
+              ),
+              _Link(
+                icon: Icons.badge_outlined,
+                label: 'Employees',
+                route: AppRoute.adminEmployees,
+              ),
+              _Link(
+                icon: Icons.workspaces_outline,
+                label: 'Employee roles',
+                route: AppRoute.adminEmployeeRoles,
               ),
             ],
           ),

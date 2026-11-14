@@ -97,6 +97,7 @@ export async function build({ seed = true, quiet = false, upto = null } = {}) {
     `${MIG}/0021_employee_types_and_any_machine.sql`,
     `${MIG}/0022_employee_roles_master.sql`,
     `${MIG}/0023_retire_unread_setting.sql`,
+    `${MIG}/0024_entry_dates_and_wastage_access.sql`,
   ];
   if (upto) {
     const cut = files.findIndex((f) => f.endsWith(upto));

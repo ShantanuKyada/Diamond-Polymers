@@ -108,8 +108,8 @@ There are no placeholder screens left. `PlaceholderScreen` was deleted.
 | Check | Command | Result |
 |---|---|---|
 | Static analysis | `cd app && flutter analyze` | No issues |
-| Flutter tests | `cd app && flutter test` | **189 passed**, 2 fail on an old Flutter — see §9 |
-| Database tests | `cd supabase/tests && npm install && npm test` | **711 passed** (83 + 103 + 57 + 88 + 83 + 107 + 41 + 82 + 67) |
+| Flutter tests | `cd app && flutter test` | **191** — run in CI; blocked locally, see §9 |
+| Database tests | `cd supabase/tests && npm install && npm test` | **760 passed** (83 + 103 + 57 + 88 + 83 + 107 + 42 + 82 + 67 + 35 + 13) |
 | Release APK | `flutter build apk --release …` | Builds locally in ~2–4 min |
 
 One of those suites (`api_coverage.test.mjs`) reads every Supabase call out of
@@ -211,8 +211,14 @@ In rough order of importance:
    older copy of the app (before demo mode and the latest screens). It is not
    used by anything. Delete it once you are sure, so nobody edits the wrong
    copy.
-4. **Staff actions.** No UI yet for marking attendance, operator punch in/out,
-   issuing advances or running payroll — the database functions exist.
+4. **Local test runs are blocked on the Windows machine this was built on.**
+   `flutter test` fails with "An Application Control policy has blocked this
+   file" before any test runs: Windows code-integrity enforcement refuses
+   `flutter_tester.exe`. Nothing to do with the app, and `flutter analyze`,
+   `flutter build apk` and the database suite are unaffected. The Tests
+   workflow (`.github/workflows/ci.yml`) runs analyze, the Flutter suite and
+   the database suite on a Linux runner with no credentials, which is the
+   verification path to trust.
 5. **Creating an operator login from the app.** Admin can create a profile and
    link it to an existing login (`link_profile_to_auth_user`); creating the
    Supabase auth user itself still happens in the Supabase dashboard. In demo

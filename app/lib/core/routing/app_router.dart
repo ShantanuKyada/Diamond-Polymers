@@ -11,7 +11,7 @@ import '../../features/inventory/presentation/inventory_screen.dart';
 import '../../features/masters/presentation/catalog_screens.dart';
 import '../../features/masters/presentation/machines_screen.dart';
 import '../../features/masters/presentation/employee_roles_screen.dart';
-import '../../features/masters/presentation/operators_screen.dart';
+import '../../features/masters/presentation/employees_screen.dart';
 import '../../features/masters/presentation/products_screen.dart';
 import '../../features/masters/presentation/settings_screen.dart';
 import '../../features/mixture/presentation/mixture_entry_screen.dart';
@@ -148,7 +148,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             ),
             ShellDestination(
               icon: Icon(Icons.receipt_long_outlined),
-              label: 'My Entries',
+              label: 'My entries',
             ),
             ShellDestination(
               icon: Icon(Icons.person_outline_rounded),
@@ -191,14 +191,14 @@ final routerProvider = Provider<GoRouter>((ref) {
         AppRoute.mixtureEntry: (context, state) => const MixtureEntryScreen(),
         AppRoute.adminWastage: (context, state) => const WastageScreen(),
         AppRoute.adminReports: (context, state) => const ReportsScreen(),
-        AppRoute.adminStaffPunches: (context, state) => const PunchesScreen(),
+        AppRoute.adminStaffAttendance: (context, state) => const AttendanceScreen(),
         AppRoute.adminStaffSalary: (context, state) => const SalaryScreen(),
       }),
 
       // ---- Master data --------------------------------------------------------
       ..._pushedScreens({
         AppRoute.adminMachines: (context, state) => const MachinesScreen(),
-        AppRoute.adminOperators: (context, state) => const OperatorsScreen(),
+        AppRoute.adminEmployees: (context, state) => const EmployeesScreen(),
         AppRoute.adminSettings: (context, state) => const SettingsScreen(),
         AppRoute.adminProducts: (context, state) => const ProductsScreen(),
         AppRoute.adminPipeTypes: (context, state) => const PipeTypesScreen(),

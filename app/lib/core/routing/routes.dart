@@ -18,9 +18,9 @@ enum AppRoute {
   adminMore('/admin/more'),
   adminWastage('/admin/wastage'),
   adminMachines('/admin/machines'),
-  adminOperators('/admin/operators'),
+  adminEmployees('/admin/employees'),
   adminReports('/admin/reports'),
-  adminStaffPunches('/admin/staff/punches'),
+  adminStaffAttendance('/admin/staff/attendance'),
   adminStaffSalary('/admin/staff/salary'),
   adminSettings('/admin/settings'),
 

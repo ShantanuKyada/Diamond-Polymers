@@ -2,7 +2,7 @@ import 'package:diamond_polymers/core/theme/app_theme.dart';
 import 'package:diamond_polymers/features/masters/data/masters_repository.dart';
 import 'package:diamond_polymers/features/masters/domain/masters.dart';
 import 'package:diamond_polymers/features/masters/presentation/machines_screen.dart';
-import 'package:diamond_polymers/features/masters/presentation/operators_screen.dart';
+import 'package:diamond_polymers/features/masters/presentation/employees_screen.dart';
 import 'package:diamond_polymers/features/masters/presentation/products_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -97,7 +97,7 @@ void main() {
     });
   });
 
-  group('OperatorsScreen', () {
+  group('EmployeesScreen', () {
     final withLogin = StaffMember.from(const {
       'id': 'p1',
       'name': 'Ravi Kumar',
@@ -118,7 +118,7 @@ void main() {
 
     testWidgets('distinguishes a person with a login from one without',
         (tester) async {
-      await tester.pumpWidget(wrap(const OperatorsScreen(), [
+      await tester.pumpWidget(wrap(const EmployeesScreen(), [
         staffProvider.overrideWith((ref) async => [withLogin, withoutLogin]),
         assignmentsProvider.overrideWith((ref) async => [assignment]),
       ]));
@@ -131,7 +131,7 @@ void main() {
 
     testWidgets('shows the machine and shift a person is assigned to',
         (tester) async {
-      await tester.pumpWidget(wrap(const OperatorsScreen(), [
+      await tester.pumpWidget(wrap(const EmployeesScreen(), [
         staffProvider.overrideWith((ref) async => [withLogin, withoutLogin]),
         assignmentsProvider.overrideWith((ref) async => [assignment]),
       ]));
@@ -155,7 +155,7 @@ void main() {
         'auth_user_id': 'auth-0',
       });
 
-      await tester.pumpWidget(wrap(const OperatorsScreen(), [
+      await tester.pumpWidget(wrap(const EmployeesScreen(), [
         staffProvider.overrideWith((ref) async => [admin]),
         assignmentsProvider.overrideWith((ref) async => const []),
       ]));
@@ -230,7 +230,7 @@ void main() {
 
       await atPhoneSize(
         tester,
-        wrap(const OperatorsScreen(), [
+        wrap(const EmployeesScreen(), [
           staffProvider.overrideWith((ref) async => [person]),
           assignmentsProvider.overrideWith((ref) async => const []),
         ]),

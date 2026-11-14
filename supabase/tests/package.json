@@ -5,7 +5,7 @@
   "description": "Runs the migrations against an in-process Postgres and exercises the atomic RPCs, RLS and the material balance. No Docker, no Supabase CLI, no network.",
   "type": "module",
   "scripts": {
-    "test": "node manufacturing.test.mjs && node payroll.test.mjs && node employees.test.mjs && node app_contract.test.mjs && node packaging_access.test.mjs && node api_coverage.test.mjs && node checks.test.mjs && node migration_scripts.test.mjs && node clean_demo_data.test.mjs && node go_live.test.mjs",
+    "test": "node manufacturing.test.mjs && node payroll.test.mjs && node employees.test.mjs && node app_contract.test.mjs && node packaging_access.test.mjs && node api_coverage.test.mjs && node checks.test.mjs && node migration_scripts.test.mjs && node clean_demo_data.test.mjs && node go_live.test.mjs && node access_and_dates.test.mjs",
     "apply": "node apply.mjs",
     "test:manufacturing": "node manufacturing.test.mjs",
     "test:payroll": "node payroll.test.mjs",
@@ -16,7 +16,8 @@
     "test:checks": "node checks.test.mjs",
     "test:scripts": "node migration_scripts.test.mjs",
     "test:clean": "node clean_demo_data.test.mjs",
-    "test:golive": "node go_live.test.mjs"
+    "test:golive": "node go_live.test.mjs",
+    "test:access": "node access_and_dates.test.mjs"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",

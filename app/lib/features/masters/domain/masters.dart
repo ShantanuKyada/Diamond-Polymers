@@ -80,10 +80,40 @@ class Shift {
   final String endTime;
   final bool active;
 
-  /// "06:00 – 14:00". A night shift reads 22:00 – 06:00 and is understood to
+  /// "06:00 – 14:00". A night shift reads 18:00 – 06:00 and is understood to
   /// cross midnight (A16); no arithmetic is done here.
   String get range =>
       '${startTime.padRight(5).substring(0, 5)} – ${endTime.padRight(5).substring(0, 5)}';
+
+  /// True when the shift runs past midnight, so it ends on the day after it
+  /// began. Night is 18:00 – 06:00, where the end reads earlier than the start.
+  bool get crossesMidnight => _minutes(endTime) <= _minutes(startTime);
+
+  /// The day this shift's work counts against, given the moment it is being
+  /// recorded (A46).
+  ///
+  /// A night shift that began at 18:00 on the 14th is still the 14th's shift
+  /// at 02:00 on the 15th — one night is one day's output, and the factory
+  /// counts it against the day it started. Without this, every night splits
+  /// across two days in every report, and the halves never add up to a shift.
+  ///
+  /// Only the small hours are moved back: at 20:00 the shift started today.
+  DateTime workingDate(DateTime now) {
+    if (!crossesMidnight) return DateTime(now.year, now.month, now.day);
+    final minutesNow = now.hour * 60 + now.minute;
+    final today = DateTime(now.year, now.month, now.day);
+    return minutesNow < _minutes(endTime)
+        ? today.subtract(const Duration(days: 1))
+        : today;
+  }
+
+  /// "06:00:00" and "06:00" both arrive here; anything unparseable is treated
+  /// as midnight rather than throwing on a screen somebody is standing at.
+  static int _minutes(String time) {
+    final parts = time.split(':');
+    if (parts.length < 2) return 0;
+    return (int.tryParse(parts[0]) ?? 0) * 60 + (int.tryParse(parts[1]) ?? 0);
+  }
 
   factory Shift.from(Map<String, dynamic> row) => Shift(
         id: row['id'] as String,

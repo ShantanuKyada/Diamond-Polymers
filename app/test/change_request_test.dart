@@ -16,7 +16,7 @@ import 'package:diamond_polymers/features/masters/domain/masters.dart';
 import 'package:diamond_polymers/features/masters/presentation/catalog_screens.dart';
 import 'package:diamond_polymers/features/masters/presentation/employee_roles_screen.dart';
 import 'package:diamond_polymers/features/mixture/data/mixture_repository.dart';
-import 'package:diamond_polymers/features/masters/presentation/operators_screen.dart';
+import 'package:diamond_polymers/features/masters/presentation/employees_screen.dart';
 import 'package:diamond_polymers/features/staff/presentation/salary_slip_document.dart';
 import 'package:diamond_polymers/features/staff/data/staff_repository.dart';
 import 'package:diamond_polymers/features/staff/presentation/staff_screens.dart';
@@ -70,7 +70,7 @@ void main() {
       await signIn(tester, 'ravi@diamondpolymers.local');
 
       final bar = find.byType(NavigationBar);
-      for (final label in ['Home', 'Material', 'Production', 'My Entries',
+      for (final label in ['Home', 'Material', 'Production', 'My entries',
         'Profile']) {
         expect(find.descendant(of: bar, matching: find.text(label)),
             findsOneWidget,
@@ -98,7 +98,7 @@ void main() {
           of: find.byType(NavigationBar), matching: find.text('Material')));
       await tester.pumpAndSettle();
 
-      expect(find.text('Material Entry'), findsWidgets);
+      expect(find.text('Material entry'), findsWidgets);
 
       // Every running machine is offered, not just his own.
       final chips = find.byType(ChoiceChip);
@@ -238,7 +238,7 @@ void main() {
       await signIn(tester, 'ravi@diamondpolymers.local');
 
       await tester.tap(find.descendant(
-          of: find.byType(NavigationBar), matching: find.text('My Entries')));
+          of: find.byType(NavigationBar), matching: find.text('My entries')));
       await tester.pumpAndSettle();
 
       // Nine of Ravi's entries fall inside the week; the one from nine days
@@ -299,7 +299,7 @@ void main() {
           of: find.byType(NavigationBar), matching: find.text('More')));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Material Entry'));
+      await tester.tap(find.text('Material entry'));
       await tester.pumpAndSettle();
       expect(find.textContaining('Choose the machine'), findsOneWidget);
     });
@@ -905,8 +905,14 @@ void main() {
       // Ravi is part paid in the demo's previous month.
       expect(find.text('Part paid'), findsWidgets);
       // A payable payslip offers a way to pay it, and a slip to print.
-      expect(find.widgetWithText(FilledButton, 'Pay'), findsWidgets);
-      expect(find.widgetWithText(TextButton, 'Slip'), findsWidgets);
+      // ButtonStyleButton, not FilledButton or TextButton: the `.icon`
+      // constructors only started returning the base type in Flutter 3.41, so
+      // naming the concrete class made these two tests fail on an older
+      // toolchain for a reason that had nothing to do with the app. What is
+      // being asserted is that the affordance is there, which the shared base
+      // class says just as well on every version.
+      expect(find.widgetWithText(ButtonStyleButton, 'Pay'), findsWidgets);
+      expect(find.widgetWithText(ButtonStyleButton, 'Slip'), findsWidgets);
     });
 
     testWidgets('a draft month offers no way to pay', (tester) async {
@@ -929,7 +935,7 @@ void main() {
       await tester.pumpWidget(demoScope(withSampleData: true, 
         signedInProfileId: DemoStore.adminId,
         child:
-            MaterialApp(theme: AppTheme.light(), home: const OperatorsScreen()),
+            MaterialApp(theme: AppTheme.light(), home: const EmployeesScreen()),
       ));
       await tester.pumpAndSettle();
 
@@ -951,7 +957,7 @@ void main() {
       await tester.pumpWidget(demoScope(withSampleData: true, 
         signedInProfileId: DemoStore.adminId,
         child:
-            MaterialApp(theme: AppTheme.light(), home: const OperatorsScreen()),
+            MaterialApp(theme: AppTheme.light(), home: const EmployeesScreen()),
       ));
       await tester.pumpAndSettle();
 
@@ -985,7 +991,7 @@ void main() {
       await tester.pumpWidget(demoScope(withSampleData: true, 
         store: store,
         child:
-            MaterialApp(theme: AppTheme.light(), home: const OperatorsScreen()),
+            MaterialApp(theme: AppTheme.light(), home: const EmployeesScreen()),
       ));
       await tester.pumpAndSettle();
 
@@ -1184,7 +1190,13 @@ void main() {
       expect(find.text('Paid to you'), findsWidgets);
       expect(find.text('Still to come'), findsWidgets);
       // Their own slip, which the policies already allow them to produce.
-      expect(find.widgetWithText(TextButton, 'Get slip'), findsWidgets);
+      // ButtonStyleButton, not FilledButton or TextButton: the `.icon`
+      // constructors only started returning the base type in Flutter 3.41, so
+      // naming the concrete class made these two tests fail on an older
+      // toolchain for a reason that had nothing to do with the app. What is
+      // being asserted is that the affordance is there, which the shared base
+      // class says just as well on every version.
+      expect(find.widgetWithText(ButtonStyleButton, 'Get slip'), findsWidgets);
       // And the payment that was made, with its date.
       expect(find.text('Payments'), findsWidgets);
     });
@@ -1240,7 +1252,7 @@ void main() {
 
       // Same destinations, same order — only where they sit changes.
       final rail = find.byType(NavigationRail);
-      for (final label in ['Home', 'Material', 'Production', 'My Entries',
+      for (final label in ['Home', 'Material', 'Production', 'My entries',
         'Profile']) {
         expect(find.descendant(of: rail, matching: find.text(label)),
             findsOneWidget, reason: '$label should be on the rail');
@@ -1315,7 +1327,7 @@ void main() {
       final bar = find.byType(NavigationBar);
       expect(find.descendant(of: bar, matching: find.text('Home')),
           findsOneWidget);
-      expect(find.descendant(of: bar, matching: find.text('My Entries')),
+      expect(find.descendant(of: bar, matching: find.text('My entries')),
           findsOneWidget);
       expect(find.descendant(of: bar, matching: find.text('Profile')),
           findsOneWidget);
@@ -1540,7 +1552,7 @@ void main() {
       await tester.pumpWidget(demoScope(withSampleData: true, 
         store: store,
         child:
-            MaterialApp(theme: AppTheme.light(), home: const OperatorsScreen()),
+            MaterialApp(theme: AppTheme.light(), home: const EmployeesScreen()),
       ));
       await tester.pumpAndSettle();
 

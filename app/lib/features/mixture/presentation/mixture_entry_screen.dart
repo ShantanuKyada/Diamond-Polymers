@@ -137,7 +137,7 @@ class _MixtureEntryScreenState extends ConsumerState<MixtureEntryScreen> {
     final materials = ref.watch(rawMaterialsProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Material Entry')),
+      appBar: AppBar(title: const Text('Material entry')),
       body: PageBody(child: AsyncView<List<OperatorMachine>>(
         value: mine,
         onRetry: () => ref.invalidate(operatorMachinesProvider),
@@ -193,7 +193,7 @@ class _MixtureEntryScreenState extends ConsumerState<MixtureEntryScreen> {
     final materials = ref.watch(rawMaterialsProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Material Entry')),
+      appBar: AppBar(title: const Text('Material entry')),
       body: PageBody(child: AsyncView<List<Machine>>(
         value: machines,
         onRetry: () => ref.invalidate(machinesProvider),

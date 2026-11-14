@@ -979,3 +979,123 @@ month of payroll through the real RPCs so the pay tables are not trivially empty
 run the script, prove the masters and the administrator survive and the balances
 read zero, run it again, and then record fresh production on what is left — which
 is the actual claim being made, that the factory can start working immediately.
+
+## A44–A49. What the audit found — RESOLVED
+
+A full pass over access, calculations, naming, edge cases and flow. Six things
+were wrong or unclear; two more were raised as questions and answered by the
+factory rather than guessed at.
+
+### A44. Consuming recycled stock was open to everybody
+
+`consume_reusable_wastage()` was the one stock-moving write with no role check.
+Every other one is `require_admin()` or goes through `app.assert_can_record()`;
+this one called `app.require_profile()`, which only asks that somebody is
+signed in. Any operator — any labourer — could draw down a factory-wide
+balance.
+
+It had no caller in the app, which is why nobody had hit it, and exactly why it
+mattered: an API nothing uses is an API nobody is watching.
+
+Admin-only now. It moves a balance that belongs to no particular machine, so
+there is no "their own" for `assert_can_record()` to check — which is how it
+ended up with no guard rather than the wrong one.
+
+### A45. An entry's date was limited by the date picker and nothing else
+
+The production form offered the last 30 days and no future. The database
+enforced neither. "Do not rely only on hiding the button" is the standard the
+rest of this schema is held to, and a date that moves stock earns it.
+
+The rule is now `app.assert_entry_date()`, on BEFORE INSERT triggers over
+`production_entries`, `mixture_entries`, `wastage_entries`, `shred_entries` and
+`dispatches` — on the tables rather than inside five RPC bodies, so the sixth
+write path inherits it instead of forgetting it. INSERT only: shortening the
+window must not make last month's entries retroactively invalid.
+
+The window is `entry_backdating_days`, default 30, on the Configuration screen.
+The date picker reads the same setting instead of carrying its own copy.
+
+### A46. A night shift belonged to two days
+
+Night runs 18:00–06:00. `entry_date` defaulted to the device's date, so a
+bundle recorded at 02:00 landed on the next calendar day — one shift split
+across two days in every report, with neither half reading as a shift.
+
+**The factory counts a night shift against the day it started.** `Shift
+.workingDate()` applies that, and the form follows the shift until somebody
+picks a date by hand, after which the date is theirs.
+
+Only the small hours move: at 20:00 the shift started today.
+
+### A47. A corrected entry could be swallowed by its own retry
+
+One `client_ref` was kept across retries, which is what makes a retry safe: if
+the first attempt reached the database and only the reply was lost, the second
+is recognised and nothing is counted twice.
+
+That holds only while it is the same entry. Somebody who got an error,
+corrected the bundle count and sent it again meant something different by it —
+and the key was reused, so the database answered "already recorded" and threw
+the correction away under a message saying all was well.
+
+The key is now tied to a signature of what is being sent. Same entry, same key.
+Changed entry, new key.
+
+### A48. Monthly attendance ignored the month it was asked for
+
+The demo repository returned every row whatever month was requested. Harmless
+while one screen asked for one month; the Salary screen asks for the month it
+is showing, and would have reported January's absences against June's payslip.
+
+### A49. Attendance and pay had no line between them
+
+Asked whether absences should prorate pay automatically. **The factory's
+answer: leave it manual.** Pay is the monthly figure less what an administrator
+enters by hand, and nothing in `run_payroll()` reads attendance — which is A38,
+and deliberate.
+
+What was missing was the connection. The app recorded attendance in one screen
+and calculated pay in another, so the person deciding a deduction had to go and
+look the figure up. Each payslip now shows *"3 days absent this month — not
+deducted. Add a deduction if it should be."* Labelled that way so nobody reads
+it as something already taken off.
+
+### Naming
+
+One thing, one word. The admin side said **Punches** where the operator side of
+the same app said **Attendance**, and the database says `attendance_days`.
+Punches is payroll jargon; it is Attendance everywhere now, including the
+route.
+
+`Material Entry`, `My Entries` → sentence case, matching `Employee roles` and
+`My pay` beside them. The internals caught up with the screen: `/admin/operators`
+and `OperatorsScreen` are `/admin/employees` and `EmployeesScreen`, which is
+what the menu has always called them.
+
+**Configuration was left alone.** It is not an inconsistency with "Settings" —
+it was chosen on purpose in A42, for a reason recorded beside it, and the
+screen genuinely is the factory's catalogues rather than a preferences page.
+
+### Flow
+
+The admin **More** list was grouped by which part of the schema it touched, so
+Machines and Employees — set up once and left for months — sat beside Material
+entry, which is opened every shift. Regrouped by how often somebody opens it:
+**Every day**, **Staff**, **Factory setup**.
+
+The disabled Bags field said what was wrong and not who could fix it. The
+screen lives under `/op`, so a link would be a door the reader is not allowed
+through; it now names the administrator and the exact place instead.
+
+### Deliberately not done
+
+**An offline queue.** Every write is online-only, and a dropped connection on
+the shop floor means re-typing. The idempotency key means a retry is *safe*,
+and the form keeps its values, but there is no durable queue and no automatic
+retry. That is a feature — local persistence, a sync pass, and an answer for
+what happens when a queued entry is refused on arrival — not a fix, and it is
+not in this change.
+
+**Bulk entry.** An operator recording several products in one shift repeats the
+form each time. Also a feature.

@@ -531,7 +531,13 @@ class DemoStaffRepository implements StaffRepository {
 
   @override
   Future<List<MonthlyAttendance>> monthlyAttendance(DateTime month) async {
+    // Filtered by month, as v_monthly_attendance is. Returning every row
+    // whatever was asked for went unnoticed while one screen asked for one
+    // month; the Salary screen asks for the month it is showing (A48), and
+    // would otherwise report January's absences against June's payslip.
+    final wanted = Fmt.isoDate(DateTime(month.year, month.month, 1));
     return _latency(() => _store.monthlyAttendanceRows
+        .where((row) => row['period_month'] == wanted)
         .map(MonthlyAttendance.from)
         .toList(growable: false));
   }

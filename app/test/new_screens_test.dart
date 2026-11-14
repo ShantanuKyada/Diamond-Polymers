@@ -68,7 +68,7 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Sign in'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('My Entries').last);
+    await tester.tap(find.text('My entries').last);
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Type A'), findsWidgets);
@@ -136,7 +136,7 @@ void main() {
 
   testWidgets('Punches shows who is on site and the month behind it',
       (tester) async {
-    await show(tester, const PunchesScreen());
+    await show(tester, const AttendanceScreen());
 
     expect(find.text('On site now'), findsOneWidget);
     expect(find.text('Marked present'), findsOneWidget);

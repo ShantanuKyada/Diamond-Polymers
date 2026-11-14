@@ -1,0 +1,78 @@
+name: Tests
+
+# Analyze, the Flutter suite, and the database suite — on every push and every
+# pull request.
+#
+# Separate from build-apk.yml on purpose. That workflow needs the Supabase URL
+# and key, and refuses to build without them, which is right for an APK and
+# wrong for a test run: none of the checks below touch a network or a
+# credential. PGlite is a real Postgres compiled to WebAssembly, so the
+# database tests need no service and no Docker either.
+#
+# This also gives the repository something that goes green. Until it existed, a
+# push to main ran build-apk.yml, which stopped at the missing secrets, and the
+# only signal anybody saw was a failure that meant nothing.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flutter:
+    name: Analyze and Flutter tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          # The same pin as build-apk.yml. Two payroll widget tests used to
+          # fail below 3.41 because `FilledButton.icon` did not return the base
+          # type; the tests no longer name the concrete class, but the pin is
+          # what keeps a Flutter release from changing the result on its own.
+          flutter-version: 3.41.6
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Analyze
+        working-directory: app
+        run: flutter analyze
+
+      - name: Flutter tests
+        working-directory: app
+        run: flutter test --reporter expanded
+
+  database:
+    name: Database tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: supabase/tests/package-lock.json
+
+      - name: Install dependencies
+        working-directory: supabase/tests
+        run: npm ci
+
+      # Runs the real migrations against a real Postgres engine, in process.
+      # Among them go_live.test.mjs, which applies 0015 through 0024 to a
+      # database shaped like the live one and proves nothing is lost.
+      - name: Database tests
+        working-directory: supabase/tests
+        run: npm test

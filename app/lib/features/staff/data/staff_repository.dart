@@ -851,6 +851,19 @@ final monthlyAttendanceProvider =
       .monthlyAttendance(ref.watch(attendanceDateProvider));
 });
 
+/// The same month, asked for by a screen that is not the attendance screen.
+///
+/// The Salary screen needs the attendance of the month it is showing, which is
+/// not the month the attendance screen happens to be sitting on — so it cannot
+/// share [monthlyAttendanceProvider]'s date (A48).
+final monthlyAttendanceForProvider =
+    FutureProvider.family<List<MonthlyAttendance>, DateTime>(
+        (ref, month) async {
+  return ref
+      .watch(staffRepositoryProvider)
+      .monthlyAttendance(DateTime(month.year, month.month, 1));
+});
+
 final staffPayProvider = FutureProvider<List<StaffPay>>((ref) async {
   return ref.watch(staffRepositoryProvider).staffPay();
 });

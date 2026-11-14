@@ -25,7 +25,7 @@ class MyEntriesScreen extends ConsumerWidget {
     final entries = ref.watch(myProductionProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('My Entries')),
+      appBar: AppBar(title: const Text('My entries')),
       body: PageBody(child: RefreshIndicator(
         onRefresh: () async => ref.refresh(myProductionProvider.future),
         child: AsyncView<List<ProductionEntry>>(

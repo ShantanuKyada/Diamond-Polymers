@@ -52,6 +52,15 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen> {
   final _remarks = TextEditingController();
 
   DateTime _entryDate = DateTime.now();
+
+  /// Set once somebody picks a date by hand, after which the shift stops
+  /// choosing it for them (A46).
+  bool _dateChosenByHand = false;
+
+  /// The entry [_attemptRef] was minted for, so a retry of the same entry
+  /// keeps its key and a corrected one does not (A47).
+  String? _attemptSignature;
+
   String? _shiftId;
   String? _pipeTypeId;
   String? _pipeSizeId;
@@ -126,7 +135,9 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen> {
     }
     _wastageUsed = null;
     _attemptRef = null;
+    _attemptSignature = null;
     _error = null;
+    _dateChosenByHand = false;
   }
 
   @override
@@ -192,6 +203,7 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen> {
     // shift says so.
     if (_shiftId == null && shifts.any((s) => s.id == usual?.myShiftId)) {
       _shiftId = usual!.myShiftId;
+      _dateFollowsShift(shifts);
     }
 
     // Type -> size is the product mapping (A24): offer only the sizes this type
@@ -247,7 +259,10 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen> {
                   for (final shift in shifts) (shift.id, shift.name),
                 ],
                 selected: _shiftId,
-                onSelect: (id) => setState(() => _shiftId = id),
+                onSelect: (id) => setState(() {
+                  _shiftId = id;
+                  _dateFollowsShift(shifts);
+                }),
               ),
 
               const SizedBox(height: 20),
@@ -327,13 +342,37 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen> {
                                 // cannot weigh a bag without it (A26). That
                                 // reads as "this product has no bags", which
                                 // is indistinguishable from "nobody has set it
-                                // up" — so it says which, and where to go.
+                                // up" — so it says which.
                                 : 'No pipes-per-bag set for this product',
                       ),
                     ),
                   ),
                 ],
               ),
+              // ...and who can change it. This screen lives under /op, so the
+              // person reading it cannot open Settings themselves; a link
+              // would be a door they are not allowed through. Naming the
+              // person who can is the part that actually ends the dead end.
+              if (product != null && !bagsAllowed) ...[
+                const SizedBox(height: 8),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.info_outline_rounded,
+                        size: 16, color: scheme.onSurfaceVariant),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Bundles can still be recorded. To record bags, ask an '
+                        'administrator to set "Pipes per bag" for '
+                        '${product.sku} under More → Configuration → Products.',
+                        style: theme.textTheme.bodySmall
+                            ?.copyWith(color: scheme.onSurfaceVariant),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
               if (pipes != null && pipes > 0) ...[
                 const SizedBox(height: 8),
                 Text(
@@ -469,15 +508,42 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen> {
     );
   }
 
+  /// A night shift belongs to the day it started (A46).
+  ///
+  /// At 02:00 the operator is finishing the shift that began at 18:00
+  /// yesterday, and that is the day the bundles count against — otherwise one
+  /// night lands on two dates and neither half reads as a shift. Only touched
+  /// while the date is still the form's own: once somebody has picked one, it
+  /// is theirs.
+  void _dateFollowsShift(List<Shift> shifts) {
+    if (_dateChosenByHand) return;
+    final shift = shifts.where((s) => s.id == _shiftId).firstOrNull;
+    if (shift == null) return;
+    _entryDate = shift.workingDate(DateTime.now());
+  }
+
   Future<void> _pickDate() async {
+    final days = ref.read(entryBackdatingDaysProvider);
+    final today = DateTime.now();
+    final earliest = DateTime(today.year, today.month, today.day)
+        .subtract(Duration(days: days));
     final picked = await showDatePicker(
       context: context,
-      initialDate: _entryDate,
+      // The form may have moved the date back a day for a night shift, which
+      // would sit outside the range if the window is set to today only.
+      initialDate: _entryDate.isBefore(earliest) ? earliest : _entryDate,
       // Backdating a shift is routine; recording tomorrow's output is not.
-      firstDate: DateTime.now().subtract(const Duration(days: 30)),
-      lastDate: DateTime.now(),
+      // Both ends are the database's rule (A45), read from the same setting
+      // rather than hard-coded here as well.
+      firstDate: earliest,
+      lastDate: today,
     );
-    if (picked != null) setState(() => _entryDate = picked);
+    if (picked != null) {
+      setState(() {
+        _entryDate = picked;
+        _dateChosenByHand = true;
+      });
+    }
   }
 
   /// §44: a confirmation summary before anything is written.
@@ -511,10 +577,28 @@ class _ProductionEntryScreenState extends ConsumerState<ProductionEntryScreen> {
   }
 
   Future<void> _submit(OperatorMachine chosen) async {
+    // What is about to be sent, as one string. The attempt key is tied to it.
+    //
+    // Keeping one key across retries is what makes a retry safe: if the first
+    // attempt reached the database and only the reply was lost, the second is
+    // recognised and nothing is counted twice. But that only holds while the
+    // entry is the same entry. Somebody who gets an error, corrects the bundle
+    // count and sends it again means a different thing by it — and reusing the
+    // key there would have the database answer "already recorded" and throw
+    // the correction away, under a message saying all was well.
+    final signature = [
+      chosen.machineId, _shiftId, _pipeTypeId, _pipeSizeId,
+      _bundleCount, _bagCount, _scrapKg, _wastageUsed, _usedWastageKg,
+      _entryDate.toIso8601String(), _batchId, _remarks.text.trim(),
+    ].join('|');
+
     setState(() {
       _submitting = true;
       _error = null;
-      _attemptRef ??= const Uuid().v4();
+      if (_attemptRef == null || _attemptSignature != signature) {
+        _attemptRef = const Uuid().v4();
+        _attemptSignature = signature;
+      }
     });
 
     try {
