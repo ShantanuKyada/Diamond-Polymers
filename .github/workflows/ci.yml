@@ -63,12 +63,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: npm
-          cache-dependency-path: supabase/tests/package-lock.json
 
+      # `npm install`, not `npm ci`: supabase/tests/package-lock.json is
+      # gitignored on purpose, so there is no lockfile here to install from
+      # and nothing for the dependency cache to key on either. build-apk.yml
+      # does the same.
       - name: Install dependencies
         working-directory: supabase/tests
-        run: npm ci
+        run: npm install
 
       # Runs the real migrations against a real Postgres engine, in process.
       # Among them go_live.test.mjs, which applies 0015 through 0024 to a

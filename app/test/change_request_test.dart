@@ -28,6 +28,21 @@ import 'package:flutter_test/flutter_test.dart';
 /// mode: operator navigation, attendance on the home page, the production
 /// form's bags and wastage question, the weekly My Entries view, profile
 /// editing, the fixed shift master, and admin-only material entry.
+/// A button of any kind carrying this text.
+///
+/// Not `find.widgetWithText(FilledButton, ...)`: the `.icon` constructors only
+/// began returning the base type in Flutter 3.41, so naming the concrete class
+/// made these assertions fail on an older toolchain for a reason that had
+/// nothing to do with the app.
+///
+/// Nor `widgetWithText(ButtonStyleButton, ...)`, which looks like the fix and
+/// is not: `find.byType` compares the runtime type exactly, so an abstract
+/// base class matches nothing at all. A predicate is what honours the subtype.
+Finder buttonWithText(String text) => find.ancestor(
+      of: find.text(text),
+      matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
+    );
+
 void main() {
   setUp(() => DemoStore.latency = Duration.zero);
   tearDown(() => DemoStore.latency = const Duration(milliseconds: 320));
@@ -905,14 +920,8 @@ void main() {
       // Ravi is part paid in the demo's previous month.
       expect(find.text('Part paid'), findsWidgets);
       // A payable payslip offers a way to pay it, and a slip to print.
-      // ButtonStyleButton, not FilledButton or TextButton: the `.icon`
-      // constructors only started returning the base type in Flutter 3.41, so
-      // naming the concrete class made these two tests fail on an older
-      // toolchain for a reason that had nothing to do with the app. What is
-      // being asserted is that the affordance is there, which the shared base
-      // class says just as well on every version.
-      expect(find.widgetWithText(ButtonStyleButton, 'Pay'), findsWidgets);
-      expect(find.widgetWithText(ButtonStyleButton, 'Slip'), findsWidgets);
+      expect(buttonWithText('Pay'), findsWidgets);
+      expect(buttonWithText('Slip'), findsWidgets);
     });
 
     testWidgets('a draft month offers no way to pay', (tester) async {
@@ -1190,13 +1199,7 @@ void main() {
       expect(find.text('Paid to you'), findsWidgets);
       expect(find.text('Still to come'), findsWidgets);
       // Their own slip, which the policies already allow them to produce.
-      // ButtonStyleButton, not FilledButton or TextButton: the `.icon`
-      // constructors only started returning the base type in Flutter 3.41, so
-      // naming the concrete class made these two tests fail on an older
-      // toolchain for a reason that had nothing to do with the app. What is
-      // being asserted is that the affordance is there, which the shared base
-      // class says just as well on every version.
-      expect(find.widgetWithText(ButtonStyleButton, 'Get slip'), findsWidgets);
+      expect(buttonWithText('Get slip'), findsWidgets);
       // And the payment that was made, with its date.
       expect(find.text('Payments'), findsWidgets);
     });
